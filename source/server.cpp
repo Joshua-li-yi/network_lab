@@ -41,48 +41,13 @@ void IfTimeout(Timer *t)
 		sendto(sockServer, sndpkt, strlen(sndpkt), 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
 	}
 }
-
-//确认函数 在窗口内则正确标记，若为最小则向前滑动窗口
-// void ACK(char a)
-// {
-// 	unsigned char index = (unsigned char)a - 1;
-// 	printf("收到第 %d 个包的确认\n", index);
-// 	totalrecv++;
-// 	if (curack <= index && (curack + WINDOWSIZE >= SEQNUMBER ? true : index < curack + WINDOWSIZE))
-// 	{
-// 		ack[index] = 3;
-// 		while (ack[curack] == 3)
-// 		{
-// 			ack[curack] = 1;
-// 			curack = (curack + 1) % SEQNUMBER;
-// 		}
-// 	}
-// }
-
-//判断curseq是否可用
-// 判断序列号是否在窗口内
-// bool seqIsAvailable()
-// {
-// 	int step;
-// 	step = curseq - curack;
-// 	//序列号是否在当前发送窗口之内
-// 	if (step >= WINDOWSIZE)
-// 		return false;
-// 	if (ack[curseq] == 1)
-// 		return true;
-// 	return false;
-// }
-
+// 发送DataPackage
 void rdt_send(DataPackage *data, Timer *t)
 {
 	if (nextseqnum < base + WINDOWSIZE)
 	{
-		// TODO 这一块儿可能有问题
-
 		sendto(sockServer, (char *)data, sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-		cout << "len:" << sizeof(DataPackage) + data->len << endl;
-		if (base == nextseqnum)
-			t->Start();
+		t->Start();
 		nextseqnum++;
 	}
 }
@@ -145,19 +110,21 @@ int main(int argc, char *argv[])
 
 	int recvSize;
 	bool is_connect = false; // 判断是否连接
-	Timer *t = new Timer();
-	ifstream *is;
-	File *sendFile;
-	bool a = 0;
-	unsigned short offset = 0;
-	bool logout = false;
-	bool runFlag = true;
+	Timer *t = new Timer(); // 计时器
+	ifstream *is = new ifstream(); // 读文件
+	File *sendFile = new File(); // 文件操作
+	unsigned short offset = 0; // 发送文件offset
+	bool logout = false; // 是否登出
+	bool runFlag = true; //是否运行
+	streampos pos;//文件光标位置，用于记录上一次光标的位置
+	bool first_open_file = true; // 是否是第一次打开该文件
 	while (!logout)
 	{
 		if (!is_connect)
 			cout << "wait connect with client ..." << endl;
-		recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);
 		Sleep(200);
+		recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);
+
 		// 等待连接
 		int i = 0;
 		if (recvSize < 0)
@@ -181,7 +148,7 @@ int main(int argc, char *argv[])
 			ZeroMemory(buffer, sizeof(buffer));
 			cout << "stage 0: find client, begin connect ..." << endl;
 			int stage = 0; //初始化状态
-			
+
 			while (runFlag)
 			{
 				switch (stage)
@@ -228,13 +195,13 @@ int main(int argc, char *argv[])
 						filePath = ".\\bin\\1.txt";
 						cout << "the default file path is " << filePath << endl;
 					}
-					File *f = new File(true, filePath);
-					f->ReadFile();
-					sendFile = f;
-					is = new ifstream(filePath, ifstream::in | ios::binary);
+					sendFile->initFile(true, filePath);
+					sendFile->ReadFile();
+					first_open_file = true;
+
 					buffer[0] = S3;
 					sendto(sockServer, buffer, strlen(buffer) + 1, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-					Sleep(100);
+					
 					stage = 3;
 					break;
 				}
@@ -252,28 +219,35 @@ int main(int argc, char *argv[])
 				}
 				case 4:
 				{
-					// TODO 这一块儿可以做合并
-					// TODO 文件小，直接一个包发过去，文件大需要多次发
+					// 文件小，直接一个包发过去，文件大需要多次发
 					// 文件长度只有package时
 					cout << "begin transport file ..." << endl;
-					cout << sendFile->packageSum << endl;
 					if (sendFile->packageSum == 1)
 					{
-						// TODO 读取文件中内容到 message里， dataPackage发过去，然后检测是否会收到ACK，如果有就说明，发送完毕，
+						// 读取文件中内容到 message里， dataPackage发过去，然后检测是否会收到ACK，如果有就说明，发送完毕，
 						// 如果没有就超时重传
 						char *tmp = new char[sendFile->fileLen + 1];
+						// 打开文件
+						is->open(sendFile->filePath, ifstream::in | ios::binary);
+						// 读取文件内容
 						is->read(tmp, sendFile->fileLen);
+						// 关闭文件
+						is->close();
+
 						tmp[sendFile->fileLen] = '\0';
 
 						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (sendFile->fileLen + 1) * sizeof(char));
 						Strcpy(data->message, tmp);
+
 						data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
 						data->CheckSum((unsigned short *)data->message);
 						data->len = sendFile->fileLen + 1;
 						data->flag = 0;
 						data->offset = 0;
 						cout << "msg: " << data->message << endl;
+						Strcpy(sndpkt, (char *)data);
 						rdt_send(data, t);
+						delete data;
 						cout << "send success!!!" << endl;
 						while (true)
 						{
@@ -286,8 +260,9 @@ int main(int argc, char *argv[])
 							else
 							{
 								cout << "get ack!!!" << endl;
-								DataPackage *tmpData = extract_pkt(buffer);
-								if (tmpData->ackflag & (tmpData->ackNum = nextseqnum - 1) & (!corrupt(tmpData)))
+								DataPackage *tmpData = new DataPackage();
+								extract_pkt(buffer, *tmpData);
+								if (tmpData->ackflag & (tmpData->ackNum == nextseqnum - 1) & (!corrupt(tmpData)))
 								{
 									cout << "ack success!!!" << endl;
 									stage = 5;
@@ -297,29 +272,57 @@ int main(int argc, char *argv[])
 								}
 								else
 								{
-									// cout << "something error" << endl;
+									cout << "something error" << endl;
 									IfTimeout(t);
 								}
+								delete tmpData;
 							}
 						}
 					}
 					else // 文件需要多次传输
 					{
-						cout << "file need send " << sendFile->packageSum << " times" << endl;
+						// 如果文件发完了就退出循环
+						if(offset == sendFile->packageSum){
+								stage = 5;
+								offset = 0;
+								break;
+						}
 						char *tmp = new char[BUFFER - sizeof(DataPackage)];
+						// 打开文件
+						is->open(sendFile->filePath, ifstream::in | ios::binary);
+						if (first_open_file) // 如果是第一次打开文件
+						{
+							first_open_file = false;
+						}
+						else
+						{ // 如果不是第一次就跳到上一次的位置
+							is->seekg(pos);
+						}
+						// 读取文件内容
 						is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
+						pos = is->tellg(); // 保存文件当前位置
+						is->close();
+						
 						tmp[BUFFER - sizeof(DataPackage)] = '\0';
-						cout << "msg: " << tmp << endl;
+						// cout << "msg: " << tmp << endl;
 						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
 						Strcpy(data->message, tmp);
-						Strcpy(sndpkt, (char *)data);
+						delete (tmp);
+						
 						data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
 						data->CheckSum((unsigned short *)data->message);
 						data->len = BUFFER - sizeof(DataPackage);
 						data->flag = sendFile->packageSum;
 						data->offset = offset;
 						offset++;
+						cout << data->offset << endl;
+						// 复制到缓冲区
+						Strcpy(sndpkt, (char *)data);
+
+						cout << "file need send " << sendFile->packageSum << " times" << endl;
+						printf("send %d segment file ...\n", data->offset);
 						rdt_send(data, t);
+						delete data;
 						cout << "send success!!!" << endl;
 						while (true)
 						{
@@ -332,20 +335,21 @@ int main(int argc, char *argv[])
 							else
 							{
 								cout << "get ack!!!" << endl;
-								DataPackage *tmpData = extract_pkt(buffer);
-								if (tmpData->ackflag & (tmpData->ackNum = nextseqnum - 1) & (!corrupt(tmpData)))
+								DataPackage *tmpData = new DataPackage();
+								extract_pkt(buffer, *tmpData);
+								if (tmpData->ackflag & (tmpData->ackNum == nextseqnum - 1) & (!corrupt(tmpData)))
 								{
 									cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
 									stage = 4;
-									// ack[nextseqnum - 1 - base] = 1;
 									base = nextseqnum;
 									break;
 								}
 								else
 								{
-									// cout << "something error" << endl;
+									cout << "something error" << endl;
 									IfTimeout(t);
 								}
+								delete tmpData;
 							}
 						}
 					}
@@ -367,7 +371,7 @@ int main(int argc, char *argv[])
 				}
 				case 6: // 单项发送消息，作为测试
 				{
-					cout<<"the server will log out ...\n";
+					cout << "the server will log out ...\n";
 					runFlag = false;
 					logout = true;
 					break;

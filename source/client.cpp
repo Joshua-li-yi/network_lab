@@ -11,31 +11,25 @@ SOCKADDR_IN addrServer; //服务器地址
 SOCKADDR_IN addrClient; //客户端地址
 
 const int SEQNUMBER = 20; //接收端序列号个数，为 1~20
-int totalpacket = 1618;
-int totalrecv;
 int expectedseqnum = 1;
 SOCKET socketClient;
-
-bool hasseqnum(DataPackage *data, int expectedseqnum)
+// 判断是否是期望的序列号
+bool hasseqnum(DataPackage data, int expectedseqnum)
 {
-	if (data->seqNum == expectedseqnum)
+	if (data.seqNum == expectedseqnum)
 		return true;
 	else
 	{
 		return false;
 	}
 }
+// TODO 有问题
+// void rdt_send(DataPackage *data)
+// {
 
-void rdt_send(DataPackage *data)
-{
-	// cout<<data->checkSum<<endl;
-	sendto(socketClient, "5555", strlen("5555") + 1, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
-	sendto(socketClient, "0", strlen("0") + 1, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
-
-	sendto(socketClient, (char *)data, sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
-	expectedseqnum++;
-	// cout<<222<<endl;
-}
+// 	sendto(socketClient, (char *)data, sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
+// 	expectedseqnum++;
+// }
 
 int main(int argc, char *argv[])
 {
@@ -88,18 +82,12 @@ int main(int argc, char *argv[])
 
 	for (i = 0; i < WINDOWSIZE; i++)
 		ack_send[i] = false; //记录哪一个成功接收了
-	// write file 到当前的目录下
-	// std::ofstream out_result("helloworld.txt", std::ios::out | std::ios::binary); // 	文件打开失败
-	// if (!out_result.is_open())
-	// {
-	// 	printf("file open fail ！！！\n");
-	// 	exit(1);
-	// }
+
 	int recvSize;
-	ofstream outfile;
-	File *recvFile;
-	bool logout = false;
-	bool runFlag = true;
+	ofstream *outfile = new ofstream(); // 写文件
+	File *recvFile = new File();		// 文件操作
+	bool logout = false;				// 登出
+	bool runFlag = true;				// 是否run
 	while (!logout)
 	{
 		//向服务器发送给0表示请求连接
@@ -107,6 +95,8 @@ int main(int argc, char *argv[])
 		while (runFlag)
 		{
 			//等待 server 回复
+			Sleep(200);
+			ZeroMemory(buffer, sizeof(buffer));
 			recvSize = recvfrom(socketClient, buffer, BUFFER, 0, (SOCKADDR *)&addrServer, &len);
 			switch (stage)
 			{
@@ -129,11 +119,8 @@ int main(int argc, char *argv[])
 					cout << "please select path to download this file ..." << endl;
 					string filePath = "helloworld.txt";
 					cin >> filePath;
-					File *f = new File(false, filePath);
-					f->WriteFile();
-					recvFile = f;
-					outfile.open(recvFile->filePath, ios::out | ios::binary);
-
+					recvFile->initFile(false, filePath);
+					recvFile->WriteFile();
 					buffer[0] = S4;
 					buffer[1] = '\0';
 					sendto(socketClient, buffer, 2, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
@@ -146,77 +133,75 @@ int main(int argc, char *argv[])
 				if (recvSize >= 0)
 				{
 					cout << "get pkg from server ..." << endl;
-					DataPackage *recvData = extract_pkt(buffer);
 
+					DataPackage recvData;
+					extract_pkt(buffer, recvData);
 					// 如果是所期望的包的话
-					cout << "flag: " << recvData->flag << endl;
-					cout << "seq: " << recvData->seqNum << endl;
-					cout << "msg: " << recvData->message << endl;
-					cout << "bad:" << corrupt(recvData) << endl;
-					if ((recvData->flag == 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(recvData)))
+					if ((recvData.flag == 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(&recvData)))
 					{ // 文件不分段的接收
 						cout << "pkg not bad!" << endl;
 						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage));
-						data->ackNum = recvData->seqNum;
+						data->ackNum = recvData.seqNum;
 						data->make_pkt(SERVER_PORT, SERVER_PORT, 0, WINDOWSIZE);
 						data->CheckSum((unsigned short *)data->message);
 						data->ackflag = 1;
 						data->len = 0;
-						cout << "cks:" << data->checkSum << endl;
 						// TODO 这样写为啥报错
 						// rdt_send(data);
 						sendto(socketClient, (char *)data, sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
 						expectedseqnum++;
 
 						cout << "begin write to file: " << recvFile->filePath << endl;
-						// outfile.open(recvFile->filePath, ios::out | ios::binary);
-						outfile.write(recvData->message, recvData->len-1);
-						// char *a = new char('\0');
-						// outfile.write(a,1);
+						// 打开文件开始写入
+						outfile->open(recvFile->filePath, ios::out | ios::binary | ios::app);
+						outfile->write(recvData.message, recvData.len - 1);
+						outfile->close();
+						//关闭套接字
 						cout << "write file success!" << endl;
 						runFlag = false;
 						logout = true;
 						stage = 10;
 					}
-					else if ((recvData->flag > 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(recvData)))
+					else if ((recvData.flag > 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(&recvData)))
 					{
 						// 文件分段接收
-						cout << "pkg " << recvData->seqNum << " not bad!" << endl;
+						cout << "pkg " << recvData.seqNum << " not bad!" << endl;
 						// 发送ACK
 						// TODO 这样报错
 						// DataPackage* sendData = (DataPackage *)malloc(28);
 						DataPackage sendData;
 
-						sendData.ackNum = recvData->seqNum;
+						sendData.ackNum = recvData.seqNum;
 						sendData.make_pkt(SERVER_PORT, SERVER_PORT, 0, WINDOWSIZE);
 						sendData.CheckSum((unsigned short *)sendData.message);
 
 						sendData.ackflag = 1;
 						sendData.len = 0;
-						cout << "cks:" << sendData.checkSum << endl;
 
 						sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
 						expectedseqnum++;
 
-						printf("begin write %d segment ...\n", recvData->offset);
 						cout << "begin write to file: " << recvFile->filePath << endl;
-
-						if (recvData->offset <= recvData->flag) // 直到所有分段发完
+						printf("begin write %d segment ...\n", recvData.offset);
+						if (recvData.offset < recvData.flag) // 直到所有分段发完
 						{
-							cout << "1111111" << endl;
-							outfile.write(recvData->message, recvData->len);
-							if (recvData->offset == recvData->flag)
+							// 打开文件在文件最后写入
+							outfile->open(recvFile->filePath, ios::out | ios::binary | ios::app);
+							outfile->write(recvData.message, recvData.len - 1);
+							outfile->close();
+
+							if (recvData.offset == recvData.flag - 1)
 							{
 								cout << "write file success!" << endl;
 								stage = 10;
 								runFlag = false;
 								logout = true;
 							}
-							cout << "222222222" << endl;
 						}
 						stage = 2;
 					}
 				}
+
 				break;
 			}
 			case 10:
@@ -236,7 +221,6 @@ int main(int argc, char *argv[])
 		}
 	}
 	cout << "client logout ...\n";
-	outfile.close();
 	//关闭套接字
 	closesocket(socketClient);
 	WSACleanup();

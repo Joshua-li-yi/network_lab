@@ -2,19 +2,18 @@
 #define __DEFINE_H__
 #include "common.h"
 using namespace std;
-#define BUFFER 512   // int类型 //缓冲区大小（以太网中 UDP 的数据帧中包长度应小于 1480 字节）
+#define BUFFER 512    // int类型 //缓冲区大小（以太网中 UDP 的数据帧中包长度应小于 1480 字节）
 #define WINDOWSIZE 10 //滑动窗口大小为 10，当改为1时即为停等协议
-#define TIMEOUT 5   // 超时
+#define TIMEOUT 5     // 超时
 #define S1 1
 #define S2 2
 #define S3 3
-#define S4 4                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+#define S4 4
 #define HEADER_LEN 23 // 19B
 // 数据包结构
-struct 
-DataPackage
+struct
+    DataPackage
 {
-    // int version=1; //协议版本
     // short 部分必须为偶数
     unsigned short sourcePort; // 2B 16bits
     unsigned short destPort;   // 2B 16bits
@@ -22,12 +21,13 @@ DataPackage
     unsigned short checkSum;   // 校验和 2B
     unsigned short len;        // 数据部分长度
     unsigned short flag;       // 2B是否需要分段传输, 不需要则为0，否则为分段传输的数量
-    unsigned short offset;
-    unsigned short timeLive;
+    unsigned short offset; // 分段传输时的偏移号
+    unsigned short timeLive; // 生存期
     unsigned int seqNum;  // 序列号 4B
     unsigned int ackNum;  // ACK号 4B
     bool ackflag = false; // 1B
     char message[0];      // 消息部分
+    // 计算checksum
     void CheckSum(unsigned short *buf)
     {
         int count = sizeof(this->message) / 2;
@@ -52,6 +52,18 @@ DataPackage
     }
 };
 
+// 调试测试函数
+void test(int i)
+{
+    printf("this is a test: [%d]\n", i);
+}
+
+template <typename T>
+void test2(T i)
+{
+    cout << "======" << i << endl;
+}
+// 获得acknum
 unsigned int getacknum(DataPackage *data)
 {
     return data->ackNum;
@@ -99,30 +111,22 @@ void Strcpy(char *dest, char *src)
     }
     dest[i] = '\0';
 }
-DataPackage *extract_pkt(char *message)
+
+// 将char*转为DataPackage
+void extract_pkt(char *message, DataPackage &resultdata)
 {
-    DataPackage *data = new DataPackage();
-    data->sourcePort = *((unsigned short *)&(message[0]));
-    data->destPort = *((unsigned short *)&(message[2]));
-    data->window = *((unsigned short *)&(message[4]));
-    data->checkSum = *((unsigned short *)&(message[6]));
-    // cout << "check: " << data->checkSum << endl;
-
-    data->len = *((unsigned short *)&(message[8]));
-    // cout << "len: " << data->len << endl;
-    data->flag = *((unsigned short *)&(message[10]));
-
-    data->offset = *((unsigned short *)&(message[12]));
-    data->timeLive = *((unsigned short *)&(message[14]));
-
-    data->seqNum = *((unsigned int *)&(message[16]));
-    // cout << "seq: " << data->seqNum << endl;
-    data->ackNum = *((unsigned int *)&(message[20]));
-    // cout << "ack: " << data->ackNum << endl;
-    data->ackflag = *((bool *)&(message[24]));
-    Strcpyn(data->message, (char *)&(message[25]), data->len);
-    // cout << "msg: " << data->message << endl;
-    return data;
+    resultdata.sourcePort = *((unsigned short *)&(message[0]));
+    resultdata.destPort = *((unsigned short *)&(message[2]));
+    resultdata.window = *((unsigned short *)&(message[4]));
+    resultdata.checkSum = *((unsigned short *)&(message[6]));
+    resultdata.len = *((unsigned short *)&(message[8]));
+    resultdata.flag = *((unsigned short *)&(message[10]));
+    resultdata.offset = *((unsigned short *)&(message[12]));
+    resultdata.timeLive = *((unsigned short *)&(message[14]));
+    resultdata.seqNum = *((unsigned int *)&(message[16]));
+    resultdata.ackNum = *((unsigned int *)&(message[20]));
+    resultdata.ackflag = *((bool *)&(message[24]));
+    Strcpyn(resultdata.message, (char *)&(message[25]), resultdata.len);
 }
 
 // 文件处理
@@ -132,10 +136,9 @@ public:
     string filePath; // 文件的路径
     int fileLen;     // 文件大小 bits
     int packageSum;  // 需要分多少次发
-    // std::ifstream *readis;
     bool read;
-    // std::ofstream *writeos;
-    File(bool read, string fp)
+    // 初始化文件
+    void initFile(bool read, string fp)
     {
         this->read = read;
         this->filePath = fp;
@@ -194,7 +197,6 @@ public:
     void Start();
     void Pause();
     void Stop();
-    // clock_t GetStartTime() { return this->start_time; }
     double GetTime() { return (double)(clock() - this->start_time) / CLOCKS_PER_SEC; }
     void Show();
     // 判断是否超时

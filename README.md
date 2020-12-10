@@ -8,8 +8,9 @@ undefined reference to `__imp_WSAStartup'
 setlocale(LC_CTYPE, "");
 [https://blog.csdn.net/xie_star/article/details/32162567](https://blog.csdn.net/xie_star/article/details/32162567)
 
+
 ## TODO
-解包的时候有问题
-增加图片
 增加接受后自动命名
+文件接收的最后部分有问题
+
 
