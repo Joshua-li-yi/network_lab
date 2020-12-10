@@ -2,16 +2,17 @@
 #define __DEFINE_H__
 #include "common.h"
 using namespace std;
-#define BUFFER 1024   // int类型 //缓冲区大小（以太网中 UDP 的数据帧中包长度应小于 1480 字节）
+#define BUFFER 512   // int类型 //缓冲区大小（以太网中 UDP 的数据帧中包长度应小于 1480 字节）
 #define WINDOWSIZE 10 //滑动窗口大小为 10，当改为1时即为停等协议
-#define TIMEOUT 1.5     // 超时
+#define TIMEOUT 5   // 超时
 #define S1 1
 #define S2 2
 #define S3 3
-#define S4 4
+#define S4 4                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
 #define HEADER_LEN 23 // 19B
 // 数据包结构
-struct DataPackage
+struct 
+DataPackage
 {
     // int version=1; //协议版本
     // short 部分必须为偶数
@@ -20,13 +21,13 @@ struct DataPackage
     unsigned short window;     // 窗口大小，字节数2B
     unsigned short checkSum;   // 校验和 2B
     unsigned short len;        // 数据部分长度
-    unsigned short flag;   // 2B是否需要分段传输, 不需要则为0，否则为分段传输的数量
+    unsigned short flag;       // 2B是否需要分段传输, 不需要则为0，否则为分段传输的数量
     unsigned short offset;
     unsigned short timeLive;
-    unsigned int seqNum;       // 序列号 4B
-    unsigned int ackNum;       // ACK号 4B
-    bool ackflag = false;      // 1B
-    char message[0];           // 消息部分
+    unsigned int seqNum;  // 序列号 4B
+    unsigned int ackNum;  // ACK号 4B
+    bool ackflag = false; // 1B
+    char message[0];      // 消息部分
     void CheckSum(unsigned short *buf)
     {
         int count = sizeof(this->message) / 2;
@@ -58,15 +59,21 @@ unsigned int getacknum(DataPackage *data)
 // 判断包是否损坏
 bool corrupt(DataPackage *data)
 {
-    DataPackage *tmpdata = new DataPackage();
-    tmpdata = data;
-    tmpdata->CheckSum((unsigned short *)tmpdata->message);
-    if (tmpdata->checkSum != data->checkSum)
-        return true;
-    else
+    int count = sizeof(data->message) / 2;
+    register unsigned long sum = 0;
+    unsigned short *buf = (unsigned short *)(data->message);
+    while (count--)
     {
-        return false;
+        sum += *buf++;
+        if (sum & 0xFFFF0000)
+        {
+            sum &= 0xFFFF;
+            sum++;
+        }
     }
+    if (data->checkSum == ~(sum & 0xFFFF))
+        return true;
+    return false;
 }
 
 void Strcpyn(char *dest, char *src, unsigned short n)
@@ -74,8 +81,8 @@ void Strcpyn(char *dest, char *src, unsigned short n)
     for (int i = 0; i < n; i++)
     {
         dest[i] = *(src + i);
-        cout << "s[i]" << i << " " << *(src + i) << endl;
-        cout << "d[i]" << i << " " << dest[i] << endl;
+        // cout << "s[i]" << i << " " << *(src + i) << endl;
+        // cout << "d[i]" << i << " " << dest[i] << endl;
     }
 }
 void Strcpy(char *dest, char *src)
@@ -105,8 +112,8 @@ DataPackage *extract_pkt(char *message)
     // cout << "len: " << data->len << endl;
     data->flag = *((unsigned short *)&(message[10]));
 
-    data->offset =*((unsigned short *)&(message[12]));
-    data->timeLive =*((unsigned short *)&(message[14]));
+    data->offset = *((unsigned short *)&(message[12]));
+    data->timeLive = *((unsigned short *)&(message[14]));
 
     data->seqNum = *((unsigned int *)&(message[16]));
     // cout << "seq: " << data->seqNum << endl;
@@ -159,11 +166,11 @@ public:
             readis.seekg(0, ios::end);      //将文件流指针定位到流的末尾
             this->fileLen = readis.tellg(); // 文件的总长度
             readis.seekg(pos);              //将文件流指针重新定位到流的开始
-            if (this->fileLen % (BUFFER - sizeof(DataPackage)-1))
-                this->packageSum = int(this->fileLen / (BUFFER - sizeof(DataPackage)-1)) + 1;
+            if (this->fileLen % (BUFFER - sizeof(DataPackage) - 1))
+                this->packageSum = int(this->fileLen / (BUFFER - sizeof(DataPackage) - 1)) + 1;
             else
             {
-                this->packageSum = int(this->fileLen / (BUFFER - sizeof(DataPackage)-1));
+                this->packageSum = int(this->fileLen / (BUFFER - sizeof(DataPackage) - 1));
             }
             cout << "file pk: " << this->packageSum << endl;
         }

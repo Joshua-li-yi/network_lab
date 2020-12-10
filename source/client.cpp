@@ -99,12 +99,12 @@ int main(int argc, char *argv[])
 	ofstream outfile;
 	File *recvFile;
 	bool logout = false;
-	bool runFlage = true;
+	bool runFlag = true;
 	while (!logout)
 	{
 		//向服务器发送给0表示请求连接
 		sendto(socketClient, "0", strlen("0") + 1, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
-		while (runFlage)
+		while (runFlag)
 		{
 			//等待 server 回复
 			recvSize = recvfrom(socketClient, buffer, BUFFER, 0, (SOCKADDR *)&addrServer, &len);
@@ -132,6 +132,8 @@ int main(int argc, char *argv[])
 					File *f = new File(false, filePath);
 					f->WriteFile();
 					recvFile = f;
+					outfile.open(recvFile->filePath, ios::out | ios::binary);
+
 					buffer[0] = S4;
 					buffer[1] = '\0';
 					sendto(socketClient, buffer, 2, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
@@ -144,18 +146,18 @@ int main(int argc, char *argv[])
 				if (recvSize >= 0)
 				{
 					cout << "get pkg from server ..." << endl;
-					DataPackage *tmp = extract_pkt(buffer);
+					DataPackage *recvData = extract_pkt(buffer);
 
 					// 如果是所期望的包的话
-					cout << "flag: " << tmp->flag << endl;
-					cout << "seq: " << tmp->seqNum << endl;
-					cout << "msg: " << tmp->message << endl;
-					if ((tmp->flag == 0) & hasseqnum(tmp, expectedseqnum) & (!corrupt(tmp)))
-					{
+					cout << "flag: " << recvData->flag << endl;
+					cout << "seq: " << recvData->seqNum << endl;
+					cout << "msg: " << recvData->message << endl;
+					cout << "bad:" << corrupt(recvData) << endl;
+					if ((recvData->flag == 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(recvData)))
+					{ // 文件不分段的接收
 						cout << "pkg not bad!" << endl;
 						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage));
-
-						data->ackNum = data->seqNum;
+						data->ackNum = recvData->seqNum;
 						data->make_pkt(SERVER_PORT, SERVER_PORT, 0, WINDOWSIZE);
 						data->CheckSum((unsigned short *)data->message);
 						data->ackflag = 1;
@@ -167,12 +169,52 @@ int main(int argc, char *argv[])
 						expectedseqnum++;
 
 						cout << "begin write to file: " << recvFile->filePath << endl;
-						outfile.open(recvFile->filePath, ios::out | ios::binary);
-						outfile.write(tmp->message, tmp->len + 1);
+						// outfile.open(recvFile->filePath, ios::out | ios::binary);
+						outfile.write(recvData->message, recvData->len-1);
+						// char *a = new char('\0');
+						// outfile.write(a,1);
 						cout << "write file success!" << endl;
-						runFlage = false;
+						runFlag = false;
 						logout = true;
 						stage = 10;
+					}
+					else if ((recvData->flag > 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(recvData)))
+					{
+						// 文件分段接收
+						cout << "pkg " << recvData->seqNum << " not bad!" << endl;
+						// 发送ACK
+						// TODO 这样报错
+						// DataPackage* sendData = (DataPackage *)malloc(28);
+						DataPackage sendData;
+
+						sendData.ackNum = recvData->seqNum;
+						sendData.make_pkt(SERVER_PORT, SERVER_PORT, 0, WINDOWSIZE);
+						sendData.CheckSum((unsigned short *)sendData.message);
+
+						sendData.ackflag = 1;
+						sendData.len = 0;
+						cout << "cks:" << sendData.checkSum << endl;
+
+						sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
+						expectedseqnum++;
+
+						printf("begin write %d segment ...\n", recvData->offset);
+						cout << "begin write to file: " << recvFile->filePath << endl;
+
+						if (recvData->offset <= recvData->flag) // 直到所有分段发完
+						{
+							cout << "1111111" << endl;
+							outfile.write(recvData->message, recvData->len);
+							if (recvData->offset == recvData->flag)
+							{
+								cout << "write file success!" << endl;
+								stage = 10;
+								runFlag = false;
+								logout = true;
+							}
+							cout << "222222222" << endl;
+						}
+						stage = 2;
 					}
 				}
 				break;
@@ -181,19 +223,19 @@ int main(int argc, char *argv[])
 			{
 				cout << "file transport end!" << endl;
 				cout << "if you what to get other file input [1] else [0]\n";
-				bool tmp;
-				if (tmp)
+				bool multiRev;
+				if (multiRev)
 					stage = 1;
 				else
 				{
-					runFlage = false;
+					runFlag = false;
 				}
 				break;
 			}
 			}
 		}
 	}
-	cout<<"client logout ...\n";
+	cout << "client logout ...\n";
 	outfile.close();
 	//关闭套接字
 	closesocket(socketClient);
