@@ -1,5 +1,3 @@
-// #define _WINSOCK_DEPRECATED_NO_WARNINGS
-// #define _CRT_SECURE_NO_WARNINGS
 #include "define.h"
 
 #pragma comment(lib, "ws2_32.lib")
