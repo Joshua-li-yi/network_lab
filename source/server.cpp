@@ -26,7 +26,7 @@ int ack[SEQNUMBER];							  //用数组存储收到ack的情况
 int totalsend = 0;							  // 总发送量
 int totalrecv = 0;							  // 总接受量
 
-char sndpkt[SEQNUMBER][BUFFER];
+char sndpkt[BUFFER];
 int base = 1;
 int nextseqnum = 1;
 
@@ -37,8 +37,8 @@ void IfTimeout(Timer *t)
 	{
 		printf("Timer out error.\n");
 		t->Start();
-		for (int i = 0; i < (nextseqnum - 1) - base; ++i)
-			sendto(sockServer, sndpkt[i], strlen(sndpkt[i]) + 1, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
+		// for (int i = 0; i < nextseqnum - base; ++i)
+		sendto(sockServer, sndpkt, strlen(sndpkt), 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
 	}
 }
 
@@ -78,8 +78,9 @@ void rdt_send(DataPackage *data, Timer *t)
 	if (nextseqnum < base + WINDOWSIZE)
 	{
 		// TODO 这一块儿可能有问题
-		Strcpy(sndpkt[nextseqnum - base], (char *)data);
+
 		sendto(sockServer, (char *)data, sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
+		cout << "len:" << sizeof(DataPackage) + data->len << endl;
 		if (base == nextseqnum)
 			t->Start();
 		nextseqnum++;
@@ -148,7 +149,10 @@ int main(int argc, char *argv[])
 	ifstream *is;
 	File *sendFile;
 	bool a = 0;
-	while (true)
+	unsigned short offset = 0;
+	bool logout = false;
+	bool runFlag = true;
+	while (!logout)
 	{
 		if (!is_connect)
 			cout << "wait connect with client ..." << endl;
@@ -177,7 +181,7 @@ int main(int argc, char *argv[])
 			ZeroMemory(buffer, sizeof(buffer));
 			cout << "stage 0: find client, begin connect ..." << endl;
 			int stage = 0; //初始化状态
-			bool runFlag = true;
+			
 			while (runFlag)
 			{
 				switch (stage)
@@ -260,13 +264,15 @@ int main(int argc, char *argv[])
 						char *tmp = new char[sendFile->fileLen + 1];
 						is->read(tmp, sendFile->fileLen);
 						tmp[sendFile->fileLen] = '\0';
-						cout << "msg: " << tmp << endl;
+
 						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (sendFile->fileLen + 1) * sizeof(char));
 						Strcpy(data->message, tmp);
 						data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
 						data->CheckSum((unsigned short *)data->message);
 						data->len = sendFile->fileLen + 1;
 						data->flag = 0;
+						data->offset = 0;
+						cout << "msg: " << data->message << endl;
 						rdt_send(data, t);
 						cout << "send success!!!" << endl;
 						while (true)
@@ -297,8 +303,51 @@ int main(int argc, char *argv[])
 							}
 						}
 					}
-					else
+					else // 文件需要多次传输
 					{
+						cout << "file need send " << sendFile->packageSum << " times" << endl;
+						char *tmp = new char[BUFFER - sizeof(DataPackage)];
+						is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
+						tmp[BUFFER - sizeof(DataPackage)] = '\0';
+						cout << "msg: " << tmp << endl;
+						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
+						Strcpy(data->message, tmp);
+						Strcpy(sndpkt, (char *)data);
+						data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
+						data->CheckSum((unsigned short *)data->message);
+						data->len = BUFFER - sizeof(DataPackage);
+						data->flag = sendFile->packageSum;
+						data->offset = offset;
+						offset++;
+						rdt_send(data, t);
+						cout << "send success!!!" << endl;
+						while (true)
+						{
+							ZeroMemory(buffer, sizeof(buffer));
+							recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);
+							if (recvSize < 0)
+							{
+								IfTimeout(t);
+							}
+							else
+							{
+								cout << "get ack!!!" << endl;
+								DataPackage *tmpData = extract_pkt(buffer);
+								if (tmpData->ackflag & (tmpData->ackNum = nextseqnum - 1) & (!corrupt(tmpData)))
+								{
+									cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
+									stage = 4;
+									// ack[nextseqnum - 1 - base] = 1;
+									base = nextseqnum;
+									break;
+								}
+								else
+								{
+									// cout << "something error" << endl;
+									IfTimeout(t);
+								}
+							}
+						}
 					}
 					break;
 				}
@@ -318,6 +367,9 @@ int main(int argc, char *argv[])
 				}
 				case 6: // 单项发送消息，作为测试
 				{
+					cout<<"the server will log out ...\n";
+					runFlag = false;
+					logout = true;
 					break;
 				}
 				}

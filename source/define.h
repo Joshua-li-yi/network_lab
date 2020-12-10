@@ -9,17 +9,20 @@ using namespace std;
 #define S2 2
 #define S3 3
 #define S4 4
-#define HEADER_LEN 21 // 19B
+#define HEADER_LEN 23 // 19B
 // 数据包结构
 struct DataPackage
 {
     // int version=1; //协议版本
+    // short 部分必须为偶数
     unsigned short sourcePort; // 2B 16bits
     unsigned short destPort;   // 2B 16bits
     unsigned short window;     // 窗口大小，字节数2B
     unsigned short checkSum;   // 校验和 2B
     unsigned short len;        // 数据部分长度
-    unsigned short flag = 0;   // 2B是否需要分段传输, 不需要则为0，否则为分段传输的数量
+    unsigned short flag;   // 2B是否需要分段传输, 不需要则为0，否则为分段传输的数量
+    unsigned short offset;
+    unsigned short timeLive;
     unsigned int seqNum;       // 序列号 4B
     unsigned int ackNum;       // ACK号 4B
     bool ackflag = false;      // 1B
@@ -102,13 +105,15 @@ DataPackage *extract_pkt(char *message)
     // cout << "len: " << data->len << endl;
     data->flag = *((unsigned short *)&(message[10]));
 
-    // TODO 不对
-    data->seqNum = *((unsigned int *)&(message[12]));
+    data->offset =*((unsigned short *)&(message[12]));
+    data->timeLive =*((unsigned short *)&(message[14]));
+
+    data->seqNum = *((unsigned int *)&(message[16]));
     // cout << "seq: " << data->seqNum << endl;
-    data->ackNum = *((unsigned int *)&(message[16]));
+    data->ackNum = *((unsigned int *)&(message[20]));
     // cout << "ack: " << data->ackNum << endl;
-    data->ackflag = *((bool *)&(message[20]));
-    Strcpyn(data->message, (char *)&(message[21]), data->len);
+    data->ackflag = *((bool *)&(message[24]));
+    Strcpyn(data->message, (char *)&(message[25]), data->len);
     // cout << "msg: " << data->message << endl;
     return data;
 }
@@ -154,11 +159,11 @@ public:
             readis.seekg(0, ios::end);      //将文件流指针定位到流的末尾
             this->fileLen = readis.tellg(); // 文件的总长度
             readis.seekg(pos);              //将文件流指针重新定位到流的开始
-            if (this->fileLen % (BUFFER - HEADER_LEN - 1))
-                this->packageSum = int(this->fileLen / BUFFER) + 1;
+            if (this->fileLen % (BUFFER - sizeof(DataPackage)-1))
+                this->packageSum = int(this->fileLen / (BUFFER - sizeof(DataPackage)-1)) + 1;
             else
             {
-                this->packageSum = int(this->fileLen / BUFFER);
+                this->packageSum = int(this->fileLen / (BUFFER - sizeof(DataPackage)-1));
             }
             cout << "file pk: " << this->packageSum << endl;
         }

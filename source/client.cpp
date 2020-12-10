@@ -98,11 +98,13 @@ int main(int argc, char *argv[])
 	int recvSize;
 	ofstream outfile;
 	File *recvFile;
-	while (true)
+	bool logout = false;
+	bool runFlage = true;
+	while (!logout)
 	{
 		//向服务器发送给0表示请求连接
 		sendto(socketClient, "0", strlen("0") + 1, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
-		while (true)
+		while (runFlage)
 		{
 			//等待 server 回复
 			recvSize = recvfrom(socketClient, buffer, BUFFER, 0, (SOCKADDR *)&addrServer, &len);
@@ -143,6 +145,7 @@ int main(int argc, char *argv[])
 				{
 					cout << "get pkg from server ..." << endl;
 					DataPackage *tmp = extract_pkt(buffer);
+
 					// 如果是所期望的包的话
 					cout << "flag: " << tmp->flag << endl;
 					cout << "seq: " << tmp->seqNum << endl;
@@ -151,6 +154,7 @@ int main(int argc, char *argv[])
 					{
 						cout << "pkg not bad!" << endl;
 						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage));
+
 						data->ackNum = data->seqNum;
 						data->make_pkt(SERVER_PORT, SERVER_PORT, 0, WINDOWSIZE);
 						data->CheckSum((unsigned short *)data->message);
@@ -165,14 +169,31 @@ int main(int argc, char *argv[])
 						cout << "begin write to file: " << recvFile->filePath << endl;
 						outfile.open(recvFile->filePath, ios::out | ios::binary);
 						outfile.write(tmp->message, tmp->len + 1);
-						cout << "wtite file success!" << endl;
+						cout << "write file success!" << endl;
+						runFlage = false;
+						logout = true;
+						stage = 10;
 					}
+				}
+				break;
+			}
+			case 10:
+			{
+				cout << "file transport end!" << endl;
+				cout << "if you what to get other file input [1] else [0]\n";
+				bool tmp;
+				if (tmp)
+					stage = 1;
+				else
+				{
+					runFlage = false;
 				}
 				break;
 			}
 			}
 		}
 	}
+	cout<<"client logout ...\n";
 	outfile.close();
 	//关闭套接字
 	closesocket(socketClient);
