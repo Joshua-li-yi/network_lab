@@ -110,19 +110,20 @@ int main(int argc, char *argv[])
 
 	int recvSize;
 	bool is_connect = false; // 判断是否连接
-	Timer *t = new Timer(); // 计时器
+	Timer *t = new Timer();	 // 计时器
+	Timer *totalT = new Timer();
 	ifstream *is = new ifstream(); // 读文件
-	File *sendFile = new File(); // 文件操作
-	unsigned short offset = 0; // 发送文件offset
-	bool logout = false; // 是否登出
-	bool runFlag = true; //是否运行
-	streampos pos;//文件光标位置，用于记录上一次光标的位置
-	bool first_open_file = true; // 是否是第一次打开该文件
+	File *sendFile = new File();   // 文件操作
+	unsigned short offset = 0;	   // 发送文件offset
+	bool logout = false;		   // 是否登出
+	bool runFlag = true;		   //是否运行
+	streampos pos;				   //文件光标位置，用于记录上一次光标的位置
+	bool first_open_file = true;   // 是否是第一次打开该文件
 	while (!logout)
 	{
 		if (!is_connect)
 			cout << "wait connect with client ..." << endl;
-		Sleep(200);
+		// Sleep(200);
 		recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);
 
 		// 等待连接
@@ -201,7 +202,7 @@ int main(int argc, char *argv[])
 
 					buffer[0] = S3;
 					sendto(sockServer, buffer, strlen(buffer) + 1, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-					
+
 					stage = 3;
 					break;
 				}
@@ -224,6 +225,7 @@ int main(int argc, char *argv[])
 					cout << "begin transport file ..." << endl;
 					if (sendFile->packageSum == 1)
 					{
+						totalT->Start();
 						// 读取文件中内容到 message里， dataPackage发过去，然后检测是否会收到ACK，如果有就说明，发送完毕，
 						// 如果没有就超时重传
 						char *tmp = new char[sendFile->fileLen + 1];
@@ -265,6 +267,7 @@ int main(int argc, char *argv[])
 								if (tmpData->ackflag & (tmpData->ackNum == nextseqnum - 1) & (!corrupt(tmpData)))
 								{
 									cout << "ack success!!!" << endl;
+									totalT->Show();
 									stage = 5;
 									ack[nextseqnum - 1 - base] = 1;
 									base = nextseqnum;
@@ -282,36 +285,49 @@ int main(int argc, char *argv[])
 					else // 文件需要多次传输
 					{
 						// 如果文件发完了就退出循环
-						if(offset == sendFile->packageSum){
-								stage = 5;
-								offset = 0;
-								break;
+						if (offset == sendFile->packageSum)
+						{
+							totalT->Show();
+							stage = 5;
+							offset = 0;
+							break;
 						}
-						char *tmp = new char[BUFFER - sizeof(DataPackage)];
 						// 打开文件
 						is->open(sendFile->filePath, ifstream::in | ios::binary);
 						if (first_open_file) // 如果是第一次打开文件
 						{
 							first_open_file = false;
+							totalT->Start();
 						}
 						else
 						{ // 如果不是第一次就跳到上一次的位置
 							is->seekg(pos);
 						}
+						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
 						// 读取文件内容
-						is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
+						if (offset <= sendFile->packageSum - 2) // 如果文件不是最后一次读取
+						{
+							char *tmp = new char[BUFFER - sizeof(DataPackage)];
+							is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
+							tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
+							Strcpy(data->message, tmp);
+							delete tmp;
+							data->len = BUFFER - sizeof(DataPackage);
+						}
+						else // 如果文件是最后一次读取
+						{
+							char *tmp = new char[sendFile->fileLenRemain + 1];
+							is->read(tmp, sendFile->fileLenRemain);
+							tmp[sendFile->fileLenRemain] = '\0';
+							Strcpy(data->message, tmp);
+							delete tmp;
+							data->len = sendFile->fileLenRemain + 1;
+						}
 						pos = is->tellg(); // 保存文件当前位置
 						is->close();
-						
-						tmp[BUFFER - sizeof(DataPackage)] = '\0';
 						// cout << "msg: " << tmp << endl;
-						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-						Strcpy(data->message, tmp);
-						delete (tmp);
-						
 						data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
 						data->CheckSum((unsigned short *)data->message);
-						data->len = BUFFER - sizeof(DataPackage);
 						data->flag = sendFile->packageSum;
 						data->offset = offset;
 						offset++;

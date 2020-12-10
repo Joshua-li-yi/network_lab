@@ -2,7 +2,7 @@
 #define __DEFINE_H__
 #include "common.h"
 using namespace std;
-#define BUFFER 512    // int类型 //缓冲区大小（以太网中 UDP 的数据帧中包长度应小于 1480 字节）
+#define BUFFER 1024    // int类型 //缓冲区大小（以太网中 UDP 的数据帧中包长度应小于 1480 字节）
 #define WINDOWSIZE 10 //滑动窗口大小为 10，当改为1时即为停等协议
 #define TIMEOUT 5     // 超时
 #define S1 1
@@ -137,6 +137,7 @@ public:
     int fileLen;     // 文件大小 bits
     int packageSum;  // 需要分多少次发
     bool read;
+    int fileLenRemain;
     // 初始化文件
     void initFile(bool read, string fp)
     {
@@ -169,7 +170,8 @@ public:
             readis.seekg(0, ios::end);      //将文件流指针定位到流的末尾
             this->fileLen = readis.tellg(); // 文件的总长度
             readis.seekg(pos);              //将文件流指针重新定位到流的开始
-            if (this->fileLen % (BUFFER - sizeof(DataPackage) - 1))
+            this->fileLenRemain = this->fileLen % (BUFFER - sizeof(DataPackage) - 1);
+            if (this->fileLenRemain)
                 this->packageSum = int(this->fileLen / (BUFFER - sizeof(DataPackage) - 1)) + 1;
             else
             {
@@ -249,11 +251,10 @@ void Timer::Stop() //停止
 
 void Timer::Show()
 {
-    double t = clock() - this->start_time;
-    cout << "t: " << t << "ms" << endl;
-    // cout<<setw(2)<<setfill('0')<<t/60/60<<":"
-    //     <<setw(2)<<setfill('0')<<t/60%20<<":"
-    // 	<<setw(2)<<setfill('0')<<t%60<<endl;
+    cout<<"==================="<<endl;
+    cout << "t: " << this->GetTime() << "s" << endl;
+    cout<<"==================="<<endl;
+
 }
 
 #endif

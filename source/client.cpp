@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
 		while (runFlag)
 		{
 			//等待 server 回复
-			Sleep(200);
+			// Sleep(200);
 			ZeroMemory(buffer, sizeof(buffer));
 			recvSize = recvfrom(socketClient, buffer, BUFFER, 0, (SOCKADDR *)&addrServer, &len);
 			switch (stage)
