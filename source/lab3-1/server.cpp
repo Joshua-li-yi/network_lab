@@ -17,8 +17,8 @@ SOCKET sockServer;
 const int SEQNUMBER = 2; //序列号的个数
 
 int length = sizeof(SOCKADDR);
-char buffer[BUFFER];						  //数据发送接收缓冲区
-int ack[SEQNUMBER];							  //用数组存储收到ack的情况
+char buffer[BUFFER]; //数据发送接收缓冲区
+int ack[SEQNUMBER];	 //用数组存储收到ack的情况
 
 char sndpkt[BUFFER];
 int base = 1;
@@ -233,7 +233,7 @@ int main(int argc, char *argv[])
 						tmp[sendFile->fileLen] = '\0';
 
 						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (sendFile->fileLen + 1) * sizeof(char));
-						Strcpy(data->message, tmp);
+						Strcpyn(data->message, tmp,sendFile->fileLen + 1);
 
 						data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
 						data->CheckSum((unsigned short *)data->message);
@@ -241,7 +241,7 @@ int main(int argc, char *argv[])
 						data->flag = 0;
 						data->offset = 0;
 						cout << "msg: " << data->message << endl;
-						Strcpy(sndpkt, (char *)data);
+						Strcpyn(sndpkt, (char *)data, sizeof(DataPackage)+data->len);
 						rdt_send(data, t);
 						delete data;
 						cout << "send success!!!" << endl;
@@ -298,13 +298,14 @@ int main(int argc, char *argv[])
 							is->seekg(pos);
 						}
 						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
+
 						// 读取文件内容
 						if (offset <= sendFile->packageSum - 2) // 如果文件不是最后一次读取
 						{
 							char *tmp = new char[BUFFER - sizeof(DataPackage)];
 							is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
 							tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
-							Strcpy(data->message, tmp);
+							Strcpyn(data->message, tmp, BUFFER - sizeof(DataPackage));
 							delete tmp;
 							data->len = BUFFER - sizeof(DataPackage);
 						}
@@ -313,7 +314,7 @@ int main(int argc, char *argv[])
 							char *tmp = new char[sendFile->fileLenRemain + 1];
 							is->read(tmp, sendFile->fileLenRemain);
 							tmp[sendFile->fileLenRemain] = '\0';
-							Strcpy(data->message, tmp);
+							Strcpyn(data->message, tmp, sendFile->fileLenRemain + 1);
 							delete tmp;
 							data->len = sendFile->fileLenRemain + 1;
 						}
@@ -327,7 +328,7 @@ int main(int argc, char *argv[])
 						offset++;
 						cout << data->offset << endl;
 						// 复制到缓冲区
-						Strcpy(sndpkt, (char *)data);
+						Strcpyn(sndpkt, (char *)data, sizeof(DataPackage)+data->len);
 
 						cout << "file need send " << sendFile->packageSum << " times" << endl;
 						printf("send %d segment file ...\n", data->offset);

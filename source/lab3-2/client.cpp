@@ -9,7 +9,7 @@ SOCKADDR_IN addrServer; //服务器地址
 SOCKADDR_IN addrClient; //客户端地址
 
 const int SEQNUMBER = 20; //接收端序列号个数，为 1~20
-int expectedseqnum = 1;
+int expectedseqnum = 0;
 SOCKET socketClient;
 // 判断是否是期望的序列号
 bool hasseqnum(DataPackage data, int expectedseqnum)
@@ -135,6 +135,9 @@ int main(int argc, char *argv[])
 
 					DataPackage recvData;
 					extract_pkt(buffer, recvData);
+					test2(recvData.flag);
+					test2(recvData.seqNum);
+					// test2(recvData)
 					// 如果是所期望的包的话
 					if ((recvData.flag == 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(&recvData)))
 					{ // 文件不分段的接收
