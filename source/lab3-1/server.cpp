@@ -3,7 +3,6 @@
 面向连接、差错检测、确认重传、停等机制、累积确认等功能
 详细说明见实验报告
 ***********************************/
-// #define _CRT_SECURE_NO_WARNINGS
 #include "define.h"
 #pragma comment(lib, "ws2_32.lib")
 using namespace std;
@@ -19,12 +18,7 @@ const int SEQNUMBER = 2; //序列号的个数
 
 int length = sizeof(SOCKADDR);
 char buffer[BUFFER];						  //数据发送接收缓冲区
-char RetransmissionBuffer[SEQNUMBER][BUFFER]; //选择重传缓冲区
-int totalpacket;							  //总的数据包个数
-int totalseq;								  //收到的包的个数
 int ack[SEQNUMBER];							  //用数组存储收到ack的情况
-int totalsend = 0;							  // 总发送量
-int totalrecv = 0;							  // 总接受量
 
 char sndpkt[BUFFER];
 int base = 1;

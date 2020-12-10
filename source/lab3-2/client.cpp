@@ -86,6 +86,7 @@ int main(int argc, char *argv[])
 	File *recvFile = new File();		// 文件操作
 	bool logout = false;				// 登出
 	bool runFlag = true;				// 是否run
+	unsigned int curACKnum = 0;
 	while (!logout)
 	{
 		//向服务器发送给0表示请求连接
@@ -175,7 +176,8 @@ int main(int argc, char *argv[])
 
 						sendData.ackflag = 1;
 						sendData.len = 0;
-
+						// 当前acknum
+						curACKnum = sendData.ackNum;
 						sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
 						expectedseqnum++;
 
@@ -197,6 +199,18 @@ int main(int argc, char *argv[])
 							}
 						}
 						stage = 2;
+					}
+					else if ((recvData.flag > 0) & (!hasseqnum(recvData, expectedseqnum)) & (!corrupt(&recvData)))
+					{
+						// 如果收到的不是对应期望的分组
+						cout<<"get "<<recvData.ackNum<<" not get expectedseqnum "<<expectedseqnum<<endl;
+						DataPackage sendData;
+						sendData.ackNum = curACKnum;
+						sendData.make_pkt(SERVER_PORT, SERVER_PORT, 0, WINDOWSIZE);
+						sendData.CheckSum((unsigned short *)sendData.message);
+						sendData.ackflag = 1;
+						sendData.len = 0;
+						sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
 					}
 				}
 
