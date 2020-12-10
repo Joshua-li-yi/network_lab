@@ -61,7 +61,7 @@ void window_shift(char **sendBuffer)
 	// 往前移一个
 	for (int i = 0; i < WINDOWSIZE - 1; i++)
 		Strcpy(sendBuffer[i], sendBuffer[i + 1]);
-	
+
 	if (base + WINDOWSIZE <= sendFile->packageSum)
 	{
 		// 需要增加新数据时
@@ -432,6 +432,20 @@ int main(int argc, char *argv[])
 					}
 					else // 文件需要多次传输
 					{
+						// 如果文件发完了就退出循环
+						if (lastACKnum == sendFile->packageSum - 1)
+						{
+							totalT->Show();
+							stage = 5;
+							offset = 0;
+							break;
+						}
+						// 如果是第一次打开文件
+						if (first_open_file)
+						{
+							totalT->Start();
+							first_open_file = false;
+						}
 						// 窗口初始化
 						window_init(sndpkt);
 						// 发送部分
@@ -468,94 +482,7 @@ int main(int argc, char *argv[])
 									expectACKnum = base;
 									lastACKnum = tmpData->ackNum;
 									// 窗口需要移动，判断文件是否需要再次读取，
-									// 该种情况下文件不需要再次读取
 									window_shift(sndpkt);
-									break;
-								}
-								else
-								{
-									cout << "something error" << endl;
-									IfTimeout(t);
-								}
-								delete tmpData;
-							}
-						}
-
-						// 如果文件发完了就退出循环
-						if (offset == sendFile->packageSum)
-						{
-							totalT->Show();
-							stage = 5;
-							offset = 0;
-							break;
-						}
-						// 打开文件
-						is->open(sendFile->filePath, ifstream::in | ios::binary);
-						if (first_open_file) // 如果是第一次打开文件
-						{
-							first_open_file = false;
-							totalT->Start();
-						}
-						else
-						{ // 如果不是第一次就跳到上一次的位置
-							is->seekg(pos);
-						}
-						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-						// 读取文件内容
-						if (offset <= sendFile->packageSum - 2) // 如果文件不是最后一次读取
-						{
-							char *tmp = new char[BUFFER - sizeof(DataPackage)];
-							is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
-							tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
-							Strcpy(data->message, tmp);
-							delete tmp;
-							data->len = BUFFER - sizeof(DataPackage);
-						}
-						else // 如果文件是最后一次读取
-						{
-							char *tmp = new char[sendFile->fileLenRemain + 1];
-							is->read(tmp, sendFile->fileLenRemain);
-							tmp[sendFile->fileLenRemain] = '\0';
-							Strcpy(data->message, tmp);
-							delete tmp;
-							data->len = sendFile->fileLenRemain + 1;
-						}
-						pos = is->tellg(); // 保存文件当前位置
-						is->close();
-						// cout << "msg: " << tmp << endl;
-						data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
-						data->CheckSum((unsigned short *)data->message);
-						data->flag = sendFile->packageSum;
-						data->offset = offset;
-						offset++;
-						cout << data->offset << endl;
-						// 复制到缓冲区
-						Strcpy(sndpkt, (char *)data);
-
-						cout << "file need send " << sendFile->packageSum << " times" << endl;
-						printf("send %d segment file ...\n", data->offset);
-						// 这里需要改成发一波
-						rdt_send(data, t);
-						delete data;
-						cout << "send success!!!" << endl;
-						while (true)
-						{
-							ZeroMemory(buffer, sizeof(buffer));
-							recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);
-							if (recvSize < 0)
-							{
-								IfTimeout(t);
-							}
-							else
-							{
-								cout << "get ack!!!" << endl;
-								DataPackage *tmpData = new DataPackage();
-								extract_pkt(buffer, *tmpData);
-								if (tmpData->ackflag & (tmpData->ackNum == nextseqnum - 1) & (!corrupt(tmpData)))
-								{
-									cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
-									stage = 4;
-									base = nextseqnum;
 									break;
 								}
 								else
@@ -593,10 +520,10 @@ int main(int argc, char *argv[])
 				}
 			}
 		}
+		//关闭套接字
+		closesocket(sockServer);
+		WSACleanup();
+		system("pause");
+		return 0;
 	}
-	//关闭套接字
-	closesocket(sockServer);
-	WSACleanup();
-	system("pause");
-	return 0;
 }

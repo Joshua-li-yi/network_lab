@@ -13,9 +13,5 @@ setlocale(LC_CTYPE, "");
 增加接受后自动命名
 图片接受有问题
 
-lab2
-先考虑
-如果packageSum <= WINDOWSIZE, 那么通过循环，读一次
-注意发送的初态和末状态
 
 
