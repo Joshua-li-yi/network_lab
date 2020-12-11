@@ -4,7 +4,7 @@
 using namespace std;
 #define BUFFER 1024    // int类型 //缓冲区大小（以太网中 UDP 的数据帧中包长度应小于 1480 字节）
 #define WINDOWSIZE 5 //滑动窗口大小
-#define TIMEOUT 5     // 超时,代表着一组中所有的ACK都已经正确收到
+#define TIMEOUT 2     // 超时,单位S, 代表着一组中所有的ACK都已经正确收到
 #define S1 1
 #define S2 2
 #define S3 3
@@ -91,25 +91,7 @@ bool corrupt(DataPackage *data)
 void Strcpyn(char *dest, char *src, unsigned short n)
 {
     for (unsigned short i = 0; i < n; i++)
-    {
         dest[i] = *(src + i);
-        // cout << "s[i]" << i << " " << *(src + i) << endl;
-        // cout << "d[i]" << i << " " << dest[i] << endl;
-    }
-}
-void Strcpy(char *dest, char *src)
-{
-    if (dest == NULL || src == NULL)
-        return;
-    if (dest == src)
-        return;
-    int i = 0;
-    while (src[i] != '\0')
-    {
-        dest[i] = src[i];
-        i++;
-    }
-    dest[i] = '\0';
 }
 
 // 将char*转为DataPackage
@@ -198,8 +180,6 @@ public:
     Timer();
     //计时器的三种动作（功能）
     void Start();
-    void Pause();
-    void Stop();
     double GetTime() { return (double)(clock() - this->start_time) / CLOCKS_PER_SEC; }
     void Show();
     // 判断是否超时
@@ -224,30 +204,6 @@ void Timer::Start() //开始
 {
     this->start_time = clock();
     this->is_stop = false;
-}
-void Timer::Pause() //暂停
-{
-    if (this->is_stop || this->is_pause) //如果处于停止/暂停状态,此动作不做任何处理，直接返回
-        return;
-    else //否则调制为暂停状态
-    {
-        this->is_pause = true;
-        this->pause_time = clock(); //获取暂停时间
-    }
-}
-void Timer::Stop() //停止
-{
-    if (this->is_stop) //如果正处于停止状态（不是暂停状态），不做任何处理
-        return;
-    else if (this->is_pause) //改变计时器状态
-    {
-        this->is_pause = false;
-        this->is_stop = true;
-    }
-    else if (!this->is_stop)
-    {
-        this->is_stop = true;
-    }
 }
 
 void Timer::Show()

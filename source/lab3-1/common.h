@@ -8,6 +8,4 @@
 #include <locale.h> 
 #include <iostream>
 #include <string>
-// #include <ctime>
-
 #endif

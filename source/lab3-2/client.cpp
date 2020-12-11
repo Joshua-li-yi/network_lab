@@ -135,9 +135,6 @@ int main(int argc, char *argv[])
 
 					DataPackage recvData;
 					extract_pkt(buffer, recvData);
-					test2(recvData.flag);
-					test2(recvData.seqNum);
-					// test2(recvData)
 					// 如果是所期望的包的话
 					if ((recvData.flag == 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(&recvData)))
 					{ // 文件不分段的接收
