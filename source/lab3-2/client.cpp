@@ -156,6 +156,7 @@ int main(int argc, char *argv[])
 						cout << "begin write to file: " << recvFile->filePath << endl;
 						// 打开文件开始写入
 						outfile->open(recvFile->filePath, ios::out | ios::binary | ios::app);
+
 						outfile->write(recvData.message, recvData.len - 1);
 						outfile->close();
 						//关闭套接字
@@ -191,6 +192,7 @@ int main(int argc, char *argv[])
 							// 打开文件在文件最后写入
 							outfile->open(recvFile->filePath, ios::out | ios::binary | ios::app);
 							outfile->write(recvData.message, recvData.len - 1);
+							// outfile->write("========12344======\n",20);
 							outfile->close();
 
 							if (recvData.offset == recvData.flag - 1)

@@ -90,7 +90,7 @@ bool corrupt(DataPackage *data)
 
 void Strcpyn(char *dest, char *src, unsigned short n)
 {
-    for (int i = 0; i < n; i++)
+    for (unsigned short i = 0; i < n; i++)
     {
         dest[i] = *(src + i);
         // cout << "s[i]" << i << " " << *(src + i) << endl;
@@ -126,6 +126,7 @@ void extract_pkt(char *message, DataPackage &resultdata)
     resultdata.seqNum = *((unsigned int *)&(message[16]));
     resultdata.ackNum = *((unsigned int *)&(message[20]));
     resultdata.ackflag = *((bool *)&(message[24]));
+
     Strcpyn(resultdata.message, (char *)&(message[25]), resultdata.len);
 }
 
