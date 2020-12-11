@@ -2,8 +2,8 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
-#define SERVER_PORT 8888	  //接收数据的端口号
-#define SERVER_IP "127.0.0.1" //  服务器的 IP 地址
+#define CLIENT_PORT 8888	  //接收数据的端口号
+#define CLIENT_IP "127.0.0.1" //  服务器的 IP 地址
 
 SOCKADDR_IN addrServer; //服务器地址
 SOCKADDR_IN addrClient; //客户端地址
@@ -56,12 +56,28 @@ int main(int argc, char *argv[])
 	{
 		printf("The Winsock 2.2 dll was found okay\n");
 	}
-
+	int client_port = 11332;
+	string client_ip = "127.0.0.1";
+	cout << "please input client ip addr: ";
+	cin >> client_ip;
+	if (client_ip == "-1")
+	{
+		std ::cout << "\tdefault IP: " << CLIENT_IP << "\n";
+		client_ip = CLIENT_IP;
+	}
+	const char *client_ip_const = client_ip.c_str();
+	cout << "please input client port: ";
+	cin >> client_port;
+	if (client_port == -1)
+	{
+		cout << "\tdefault port: " << CLIENT_PORT << "\n";
+		client_port = CLIENT_PORT;
+	}
 	socketClient = socket(AF_INET, SOCK_DGRAM, 0);
 	SOCKADDR_IN addrServer;
-	addrServer.sin_addr.S_un.S_addr = inet_addr(SERVER_IP);
+	addrServer.sin_addr.S_un.S_addr = inet_addr(client_ip_const);
 	addrServer.sin_family = AF_INET;
-	addrServer.sin_port = htons(SERVER_PORT);
+	addrServer.sin_port = htons(client_port);
 	//接收缓冲区
 	char buffer[BUFFER];
 	ZeroMemory(buffer, sizeof(buffer));
@@ -141,7 +157,7 @@ int main(int argc, char *argv[])
 						cout << "pkg not bad!" << endl;
 						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage));
 						data->ackNum = recvData.seqNum;
-						data->make_pkt(SERVER_PORT, SERVER_PORT, 0, WINDOWSIZE);
+						data->make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
 						data->CheckSum((unsigned short *)data->message);
 						data->ackflag = 1;
 						data->len = 0;
@@ -172,7 +188,7 @@ int main(int argc, char *argv[])
 						DataPackage sendData;
 
 						sendData.ackNum = recvData.seqNum;
-						sendData.make_pkt(SERVER_PORT, SERVER_PORT, 0, WINDOWSIZE);
+						sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
 						sendData.CheckSum((unsigned short *)sendData.message);
 
 						sendData.ackflag = 1;
@@ -205,10 +221,10 @@ int main(int argc, char *argv[])
 					else if ((recvData.flag > 0) & (!hasseqnum(recvData, expectedseqnum)) & (!corrupt(&recvData)))
 					{
 						// 如果收到的不是对应期望的分组
-						cout<<"get "<<recvData.ackNum<<" not get expectedseqnum "<<expectedseqnum<<endl;
+						cout << "get " << recvData.ackNum << " not get expectedseqnum " << expectedseqnum << endl;
 						DataPackage sendData;
 						sendData.ackNum = curACKnum;
-						sendData.make_pkt(SERVER_PORT, SERVER_PORT, 0, WINDOWSIZE);
+						sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
 						sendData.CheckSum((unsigned short *)sendData.message);
 						sendData.ackflag = 1;
 						sendData.len = 0;
@@ -228,7 +244,12 @@ int main(int argc, char *argv[])
 				else
 				{
 					runFlag = false;
+					logout = true;
 				}
+				break;
+			}
+			case 11:
+			{
 				break;
 			}
 			}

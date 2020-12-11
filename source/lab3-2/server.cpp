@@ -241,14 +241,30 @@ int main(int argc, char *argv[])
 	{
 		printf("The Winsock 2.2 dll was found okay\n");
 	}
+	int server_port = 11332;
+	string server_ip = "127.0.0.1";
+	cout << "please input ip addr: ";
+	cin >> server_ip;
+	if (server_ip == "-1")
+	{
+		cout << "\tdefault IP:  " << SERVER_IP << "\n";
+		server_ip = SERVER_IP;
+	}
 
+	cout << "please input sever port: ";
+	cin >> server_port;
+	if (server_port == -1)
+	{
+		cout << "\tdefault port: " << SERVER_PORT << "\n";
+		server_port = SERVER_PORT;
+	}
 	sockServer = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	//设置套接字为非阻塞模式
 	int iMode = 1;											//1：非阻塞，0：阻塞
 	ioctlsocket(sockServer, FIONBIO, (u_long FAR *)&iMode); //非阻塞设置
 	addrServer.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
 	addrServer.sin_family = AF_INET;
-	addrServer.sin_port = htons(SERVER_PORT);
+	addrServer.sin_port = htons(server_port);
 	err = bind(sockServer, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
 	if (err)
 	{

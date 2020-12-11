@@ -75,13 +75,30 @@ int main(int argc, char *argv[])
 		printf("The Winsock 2.2 dll was found okay\n");
 	}
 
+	int server_port = 11332;
+	string server_ip = "127.0.0.1";
+	cout << "please input ip addr: ";
+	cin >> server_ip;
+	if (server_ip == "-1")
+	{
+		cout << "\tdefault IP:  " << SERVER_IP << "\n";
+		server_ip = SERVER_IP;
+	}
+
+	cout << "please input sever port: ";
+	cin >> server_port;
+	if (server_port == -1)
+	{
+		cout << "\tdefault port: " << SERVER_PORT << "\n";
+		server_port = SERVER_PORT;
+	}
 	sockServer = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	//设置套接字为非阻塞模式
 	int iMode = 1;											//1：非阻塞，0：阻塞
 	ioctlsocket(sockServer, FIONBIO, (u_long FAR *)&iMode); //非阻塞设置
 	addrServer.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
 	addrServer.sin_family = AF_INET;
-	addrServer.sin_port = htons(SERVER_PORT);
+	addrServer.sin_port = htons(server_port);
 	err = bind(sockServer, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
 	if (err)
 	{
@@ -89,14 +106,6 @@ int main(int argc, char *argv[])
 		printf("Could  not  bind  the  port  %d  for  socket.Error  code is %d\n", SERVER_PORT, err);
 		WSACleanup();
 		return -1;
-	}
-	// 清空内存
-	ZeroMemory(buffer, sizeof(buffer));
-	string schema = "test";
-	cout << "please input schema [test] or transport [data]: " << endl;
-	// cin >> schema;
-	if (schema == "data")
-	{
 	}
 
 	for (int i = 0; i < SEQNUMBER; i++)
@@ -118,6 +127,8 @@ int main(int argc, char *argv[])
 		if (!is_connect)
 			cout << "wait connect with client ..." << endl;
 		// Sleep(200);
+		ZeroMemory(buffer, sizeof(buffer));
+
 		recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);
 
 		// 等待连接
@@ -135,9 +146,9 @@ int main(int argc, char *argv[])
 		int waitCount = 0;
 		//握手建立连接阶段
 		//服务器收到客户端发来的TAG=0的数据报，标识请求连接
-		//服务器向客户端发送一个 100（ASCII） 大小的状态码，表示服务器准备好了，可以发送数据
-		//客户端收到 100 之后回复一个 200 大小的状态码，表示客户端准备好了，可以接收数据了
-		//服务器收到 200 状态码之后，就开始发送数据了
+		//服务器向客户端发送一个 S1（ASCII） 大小的状态码，表示服务器准备好了，可以发送数据
+		//客户端收到 S1 之后回复一个 S2 大小的状态码，表示客户端准备好了，可以接收数据了
+		//服务器收到 S2 状态码之后，就开始发送数据了
 		if (strcmp(buffer, "0") == 0)
 		{
 			ZeroMemory(buffer, sizeof(buffer));
@@ -160,6 +171,7 @@ int main(int argc, char *argv[])
 				case 1: //等待接收 S2 阶段，没有收到则计数器+1，超时则放弃此次“连接”，等待从第一步开始
 				{
 					cout << "stage 1: wait S2 from client ..." << endl;
+					ZeroMemory(buffer, sizeof(buffer));
 					recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);
 					if (recvSize < 0)
 					{
@@ -187,22 +199,40 @@ int main(int argc, char *argv[])
 					cin >> filePath;
 					if (filePath == "-1")
 					{
-						filePath = ".\\bin\\1.txt";
+						filePath = ".\\test\\helloworld.txt";
 						cout << "the default file path is " << filePath << endl;
 					}
+
 					sendFile->initFile(true, filePath);
 					sendFile->ReadFile();
 					first_open_file = true;
 
 					buffer[0] = S3;
 					sendto(sockServer, buffer, strlen(buffer) + 1, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-
+					stage = 10;
+					break;
+				}
+				case 10:
+				{
+					string filename;
+					cout << "Please input file name: " << endl;
+					cin >> filename;
+					if (filename == "-1")
+					{
+						filename = "helloworld.txt";
+						cout << "the default file name is " << filename << endl;
+					}
+					
+					for (int i = 0; i < filename.length(); i++)
+						buffer[i] = filename[i];
+					buffer[filename.length()] = '\0';
+					sendto(sockServer, buffer, strlen(buffer) + 1, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
 					stage = 3;
 					break;
 				}
-
 				case 3:
 				{
+					ZeroMemory(buffer, sizeof(buffer));
 					recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);
 					if ((unsigned char)buffer[0] == S4)
 					{
@@ -212,6 +242,7 @@ int main(int argc, char *argv[])
 					}
 					break;
 				}
+
 				case 4:
 				{
 					// 文件小，直接一个包发过去，文件大需要多次发
@@ -233,7 +264,7 @@ int main(int argc, char *argv[])
 						tmp[sendFile->fileLen] = '\0';
 
 						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (sendFile->fileLen + 1) * sizeof(char));
-						Strcpyn(data->message, tmp,sendFile->fileLen + 1);
+						Strcpyn(data->message, tmp, sendFile->fileLen + 1);
 
 						data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
 						data->CheckSum((unsigned short *)data->message);
@@ -241,7 +272,7 @@ int main(int argc, char *argv[])
 						data->flag = 0;
 						data->offset = 0;
 						cout << "msg: " << data->message << endl;
-						Strcpyn(sndpkt, (char *)data, sizeof(DataPackage)+data->len);
+						Strcpyn(sndpkt, (char *)data, sizeof(DataPackage) + data->len);
 						rdt_send(data, t);
 						delete data;
 						cout << "send success!!!" << endl;
@@ -328,7 +359,7 @@ int main(int argc, char *argv[])
 						offset++;
 						cout << data->offset << endl;
 						// 复制到缓冲区
-						Strcpyn(sndpkt, (char *)data, sizeof(DataPackage)+data->len);
+						Strcpyn(sndpkt, (char *)data, sizeof(DataPackage) + data->len);
 
 						cout << "file need send " << sendFile->packageSum << " times" << endl;
 						printf("send %d segment file ...\n", data->offset);
@@ -375,10 +406,16 @@ int main(int argc, char *argv[])
 						stage = 2;
 					else
 					{
-						stage = 6;
-					}
 
-					break;
+						ZeroMemory(buffer, sizeof(buffer));
+						recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);
+						if ((unsigned char)buffer[0] == DISCONNECT)
+						{
+							cout << "the client disconnet with server...";
+						}
+						stage = 6;
+						break;
+					}
 				}
 				case 6: // 单项发送消息，作为测试
 				{
