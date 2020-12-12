@@ -103,6 +103,8 @@ int main(int argc, char *argv[])
 	bool logout = false;				// 登出
 	bool runFlag = true;				// 是否run
 	unsigned int curACKnum = 0;
+	string filePath = "";
+
 	while (!logout)
 	{
 		//向服务器发送给0表示请求连接
@@ -126,22 +128,32 @@ int main(int argc, char *argv[])
 					stage = 1;
 				}
 				break;
-			case 1: //选择下载位置阶段
+						case 1: //选择下载位置阶段
 			{
 				if ((unsigned char)buffer[0] == S3)
 				{
 					cout << "server has select file to transport!!!" << endl;
 					cout << "please select path to download this file ..." << endl;
-					string filePath = "helloworld.txt";
+					filePath = "helloworld.txt";
 					cin >> filePath;
-					recvFile->initFile(false, filePath);
+					stage = 50;
+				}
+				break;
+			}
+			case 50:
+			{
+				if (recvSize >= 0)
+				{
+					string filename = buffer;
+					recvFile->initFile(false, filePath+filename);
 					recvFile->WriteFile();
+					ZeroMemory(buffer, sizeof(buffer));
 					buffer[0] = S4;
 					buffer[1] = '\0';
 					sendto(socketClient, buffer, 2, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
 					stage = 2;
+					break;
 				}
-				break;
 			}
 			case 2:
 			{

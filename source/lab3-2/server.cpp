@@ -349,7 +349,7 @@ int main(int argc, char *argv[])
 					}
 					break;
 				}
-				case 2: //文件选择阶段
+								case 2: //文件选择阶段
 				{
 					cout << "==========file transport===========" << endl;
 					string filePath;
@@ -360,17 +360,34 @@ int main(int argc, char *argv[])
 						filePath = ".\\test\\helloworld.txt";
 						cout << "the default file path is " << filePath << endl;
 					}
+
 					sendFile->initFile(true, filePath);
 					sendFile->ReadFile();
 					first_open_file = true;
 
 					buffer[0] = S3;
 					sendto(sockServer, buffer, strlen(buffer) + 1, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-
+					stage = 10;
+					break;
+				}
+				case 10:
+				{
+					string filename;
+					cout << "Please input file name: " << endl;
+					cin >> filename;
+					if (filename == "-1")
+					{
+						filename = "helloworld.txt";
+						cout << "the default file name is " << filename << endl;
+					}
+					
+					for (int i = 0; i < filename.length(); i++)
+						buffer[i] = filename[i];
+					buffer[filename.length()] = '\0';
+					sendto(sockServer, buffer, strlen(buffer) + 1, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
 					stage = 3;
 					break;
 				}
-
 				case 3:
 				{
 					recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);

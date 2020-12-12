@@ -231,6 +231,17 @@ int main(int argc, char *argv[])
 						}
 						stage = 2;
 					}
+					// else if((recvData.flag > 0) & (!hasseqnum(recvData, expectedseqnum)) & (!corrupt(&recvData))){
+					// 	// 如果收到的不是对应期望的分组
+					// 	cout << "get " << recvData.ackNum << " not get expectedseqnum " << expectedseqnum << endl;
+					// 	DataPackage sendData;
+					// 	sendData.ackNum = expectedseqnum - 1;
+					// 	sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
+					// 	sendData.CheckSum((unsigned short *)sendData.message);
+					// 	sendData.ackflag = 1;
+					// 	sendData.len = 0;
+					// 	sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
+					// }
 				}
 				break;
 			}

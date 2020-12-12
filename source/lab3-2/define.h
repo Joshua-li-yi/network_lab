@@ -9,6 +9,7 @@ using namespace std;
 #define S2 2
 #define S3 3
 #define S4 4
+#define S5 5
 #define HEADER_LEN 23 // 19B
 // 数据包结构
 struct
