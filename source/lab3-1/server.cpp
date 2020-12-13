@@ -14,13 +14,10 @@ SOCKADDR_IN addrServer; //服务器地址
 SOCKADDR_IN addrClient; //客户端地址
 SOCKET sockServer;
 
-const int SEQNUMBER = 2; //序列号的个数
-
 int length = sizeof(SOCKADDR);
 char buffer[BUFFER]; //数据发送接收缓冲区
-int ack[SEQNUMBER];	 //用数组存储收到ack的情况
 
-char sndpkt[BUFFER];
+char sndpkt[BUFFER]; // 缓存上一次的数据
 int base = 1;
 int nextseqnum = 1;
 
@@ -107,9 +104,6 @@ int main(int argc, char *argv[])
 		WSACleanup();
 		return -1;
 	}
-
-	for (int i = 0; i < SEQNUMBER; i++)
-		ack[i] = 0; //初始都标记为1
 
 	int recvSize;
 	bool is_connect = false; // 判断是否连接
@@ -247,9 +241,10 @@ int main(int argc, char *argv[])
 				{
 					// 文件小，直接一个包发过去，文件大需要多次发
 					// 文件长度只有package时
-					cout << "begin transport file ..." << endl;
+					// cout << "begin transport file ..." << endl;
 					if (sendFile->packageSum == 1)
 					{
+						// 总的文件发送定时器打开
 						totalT->Start();
 						// 读取文件中内容到 message里， dataPackage发过去，然后检测是否会收到ACK，如果有就说明，发送完毕，
 						// 如果没有就超时重传
@@ -267,39 +262,46 @@ int main(int argc, char *argv[])
 						Strcpyn(data->message, tmp, sendFile->fileLen + 1);
 
 						data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
+						// 计算checksum
 						data->CheckSum((unsigned short *)data->message);
+						// 数据部分的长度
 						data->len = sendFile->fileLen + 1;
 						data->flag = 0;
 						data->offset = 0;
 						cout << "msg: " << data->message << endl;
 						Strcpyn(sndpkt, (char *)data, sizeof(DataPackage) + data->len);
+						// 计算CheckSum，并开始定时器t
 						rdt_send(data, t);
 						delete data;
 						cout << "send success!!!" << endl;
+						// 等待接收ACK
 						while (true)
 						{
 							ZeroMemory(buffer, sizeof(buffer));
 							recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);
+							// 如果没有收到，就等待，并判断是否超时
 							if (recvSize < 0)
 							{
 								IfTimeout(t);
 							}
 							else
 							{
+								// 如果收到了客户端发来的消息
 								cout << "get ack!!!" << endl;
 								DataPackage *tmpData = new DataPackage();
+								// 解析数据包，将char* 转为DataPackage *类型
 								extract_pkt(buffer, *tmpData);
+								// 发过来的是ACK的数据，发过来ackNum是所期望的ackNum，并且数据包没有损坏
 								if (tmpData->ackflag & (tmpData->ackNum == nextseqnum - 1) & (!corrupt(tmpData)))
 								{
 									cout << "ack success!!!" << endl;
 									totalT->Show();
 									stage = 5;
-									ack[nextseqnum - 1 - base] = 1;
 									base = nextseqnum;
 									break;
 								}
 								else
-								{
+								{// 否则说明收到的数据包有问题，判断收到正确的数据包是否超时
 									cout << "something error" << endl;
 									IfTimeout(t);
 								}
@@ -322,6 +324,7 @@ int main(int argc, char *argv[])
 						if (first_open_file) // 如果是第一次打开文件
 						{
 							first_open_file = false;
+							// 总的计时器打开
 							totalT->Start();
 						}
 						else
@@ -338,6 +341,7 @@ int main(int argc, char *argv[])
 							tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
 							Strcpyn(data->message, tmp, BUFFER - sizeof(DataPackage));
 							delete tmp;
+							// 数据部分的长度
 							data->len = BUFFER - sizeof(DataPackage);
 						}
 						else // 如果文件是最后一次读取
@@ -347,47 +351,60 @@ int main(int argc, char *argv[])
 							tmp[sendFile->fileLenRemain] = '\0';
 							Strcpyn(data->message, tmp, sendFile->fileLenRemain + 1);
 							delete tmp;
+							// 数据部分的长度等与最后部分的长度
 							data->len = sendFile->fileLenRemain + 1;
 						}
 						pos = is->tellg(); // 保存文件当前位置
+						// 关闭文件
 						is->close();
 						// cout << "msg: " << tmp << endl;
 						data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
+						// 计算checksum
 						data->CheckSum((unsigned short *)data->message);
+						// flag等于要发送的数据包的个数
 						data->flag = sendFile->packageSum;
+						// 标志现在正在发该文件中的第几个数据包
 						data->offset = offset;
 						offset++;
-						cout << data->offset << endl;
+						// cout << data->offset << endl;
 						// 复制到缓冲区
 						Strcpyn(sndpkt, (char *)data, sizeof(DataPackage) + data->len);
 
-						cout << "file need send " << sendFile->packageSum << " times" << endl;
+						// cout << "file need send " << sendFile->packageSum << " times" << endl;
 						printf("send %d segment file ...\n", data->offset);
+						// 发送数据包， nextseqnum++
 						rdt_send(data, t);
 						delete data;
-						cout << "send success!!!" << endl;
+						// cout << "send success!!!" << endl;
+						// 等待接收数据包
 						while (true)
 						{
 							ZeroMemory(buffer, sizeof(buffer));
 							recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);
+							// 如果没有收到数据包，判断是否超时
 							if (recvSize < 0)
 							{
 								IfTimeout(t);
 							}
 							else
 							{
-								cout << "get ack!!!" << endl;
+								// 如果收到了客户端发来的消息
+								// cout << "get ack!!!" << endl;
 								DataPackage *tmpData = new DataPackage();
+								// 解析数据包，将char* 转为DataPackage *类型
 								extract_pkt(buffer, *tmpData);
+								// 发过来的是ACK的数据，发过来ackNum是所期望的ackNum，并且数据包没有损坏
 								if (tmpData->ackflag & (tmpData->ackNum == nextseqnum - 1) & (!corrupt(tmpData)))
 								{
 									cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
 									stage = 4;
+									// base移动
 									base = nextseqnum;
 									break;
 								}
 								else
 								{
+									// 否则说明收到的数据包有问题，判断收到正确的数据包是否超时
 									cout << "something error" << endl;
 									IfTimeout(t);
 								}
@@ -417,7 +434,7 @@ int main(int argc, char *argv[])
 						break;
 					}
 				}
-				case 6: // 单项发送消息，作为测试
+				case 6:
 				{
 					cout << "the server will log out ...\n";
 					runFlag = false;

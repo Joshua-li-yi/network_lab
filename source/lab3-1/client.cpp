@@ -8,8 +8,7 @@
 SOCKADDR_IN addrServer; //服务器地址
 SOCKADDR_IN addrClient; //客户端地址
 
-const int SEQNUMBER = 20; //接收端序列号个数，为 1~20
-int expectedseqnum = 1;
+int expectedseqnum = 1; // 期望的seqnum
 SOCKET socketClient;
 // 判断是否是期望的序列号
 bool hasseqnum(DataPackage data, int expectedseqnum)
@@ -21,13 +20,6 @@ bool hasseqnum(DataPackage data, int expectedseqnum)
 		return false;
 	}
 }
-// TODO 有问题
-// void rdt_send(DataPackage *data)
-// {
-
-// 	sendto(socketClient, (char *)data, sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
-// 	expectedseqnum++;
-// }
 
 int main(int argc, char *argv[])
 {
@@ -80,32 +72,18 @@ int main(int argc, char *argv[])
 	addrServer.sin_addr.S_un.S_addr = inet_addr(client_ip_const);
 	addrServer.sin_family = AF_INET;
 	addrServer.sin_port = htons(client_port);
-	//接收缓冲区
-	char buffer[BUFFER];
-	ZeroMemory(buffer, sizeof(buffer));
 	int len = sizeof(SOCKADDR);
-	int waitCount = 0;							   //等待次数
-	int stage = 0;								   // 初始化状态
-	unsigned short seq;							   //包的序列号
-	unsigned short recvSeq;						   //已确认的最大序列号
-	unsigned short waitSeq;						   //等待的序列号 ，窗口大小为10，这个为最小的值
-	char RetransmissionBuffer[WINDOWSIZE][BUFFER]; //接收到的缓冲区数据
-	int i = 0;									   //接收缓存区状态
-	for (i = 0; i < WINDOWSIZE; i++)
-		ZeroMemory(RetransmissionBuffer[i], sizeof(RetransmissionBuffer[i]));
 
-	BOOL ack_send[WINDOWSIZE]; //ack发送情况的记录，对应1-20的ack,刚开始全为false
-
-	for (i = 0; i < WINDOWSIZE; i++)
-		ack_send[i] = false; //记录哪一个成功接收了
-
-	int recvSize;
+	char buffer[BUFFER]; //接收缓冲区
+	ZeroMemory(buffer, sizeof(buffer));
+	int waitCount = 0;					//等待次数
+	int stage = 0;						// 初始化状态
+	int recvSize;						//接收的状态
 	ofstream *outfile = new ofstream(); // 写文件
 	File *recvFile = new File();		// 文件操作
 	bool logout = false;				// 登出
 	bool runFlag = true;				// 是否run
-
-	string filePath = "";
+	string filePath = "";				// 文件下载路径
 	while (!logout)
 	{
 		//向服务器发送给0表示请求连接
@@ -148,7 +126,7 @@ int main(int argc, char *argv[])
 				if (recvSize >= 0)
 				{
 					string filename = buffer;
-					recvFile->initFile(false, filePath+filename);
+					recvFile->initFile(false, filePath + filename);
 					recvFile->WriteFile();
 					ZeroMemory(buffer, sizeof(buffer));
 					buffer[0] = S4;
@@ -162,23 +140,27 @@ int main(int argc, char *argv[])
 			{
 				if (recvSize >= 0)
 				{
-					cout << "get pkg from server ..." << endl;
+					// cout << "get pkg from server ..." << endl;
 
 					DataPackage recvData;
 					extract_pkt(buffer, recvData);
-					// 如果是所期望的包的话
+					// 如果是不分段的文件，所期望的包，且包中的数据没有损坏的话
 					if ((recvData.flag == 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(&recvData)))
 					{ // 文件不分段的接收
 						cout << "pkg not bad!" << endl;
 						DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage));
+						// acknum等于接收的seqnum
 						data->ackNum = recvData.seqNum;
 						data->make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
+						// 计算校验和
 						data->CheckSum((unsigned short *)data->message);
+						// 标志该数据包为ack包
 						data->ackflag = 1;
+						// 数据部分长度为0
 						data->len = 0;
-						// TODO 这样写为啥报错
-						// rdt_send(data);
+						//发送数据包
 						sendto(socketClient, (char *)data, sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
+						// 期望的seq++
 						expectedseqnum++;
 
 						cout << "begin write to file: " << recvFile->filePath << endl;
@@ -188,38 +170,42 @@ int main(int argc, char *argv[])
 						outfile->close();
 						//关闭套接字
 						cout << "write file success!" << endl;
+						// 结束文件传输
 						runFlag = false;
 						logout = true;
 						stage = 10;
-					}
+					} // 如果是分段的文件，所期望的包，且包中的数据没有损坏的话
 					else if ((recvData.flag > 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(&recvData)))
 					{
 						// 文件分段接收
 						cout << "pkg " << recvData.seqNum << " not bad!" << endl;
 						// 发送ACK
-						// TODO 这样报错
-						// DataPackage* sendData = (DataPackage *)malloc(28);
 						DataPackage sendData;
-
+						// acknum等于接收的seqnum
 						sendData.ackNum = recvData.seqNum;
 						sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
+						// 计算校验和
 						sendData.CheckSum((unsigned short *)sendData.message);
-
+						// 标志该数据包为ack包
 						sendData.ackflag = 1;
+						// 数据部分长度为0
 						sendData.len = 0;
-
+						//发送数据包
 						sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
+						// 期望的seq++
 						expectedseqnum++;
 
-						cout << "begin write to file: " << recvFile->filePath << endl;
+						// cout << "begin write to file: " << recvFile->filePath << endl;
 						printf("begin write %d segment ...\n", recvData.offset);
+
 						if (recvData.offset < recvData.flag) // 直到所有分段发完
 						{
 							// 打开文件在文件最后写入
 							outfile->open(recvFile->filePath, ios::out | ios::binary | ios::app);
 							outfile->write(recvData.message, recvData.len - 1);
+							// 关闭文件
 							outfile->close();
-
+							// 如果文件已经写入完毕，通过offset来判断
 							if (recvData.offset == recvData.flag - 1)
 							{
 								cout << "write file success!" << endl;
@@ -229,6 +215,7 @@ int main(int argc, char *argv[])
 								break;
 							}
 						}
+						// 继续接收
 						stage = 2;
 					}
 					// else if((recvData.flag > 0) & (!hasseqnum(recvData, expectedseqnum)) & (!corrupt(&recvData))){
@@ -251,10 +238,11 @@ int main(int argc, char *argv[])
 				cout << "if you what to get other file input [1] else [0]\n";
 				bool multiRev = 0;
 				cin >> multiRev;
+				// 如果是多次接收
 				if (multiRev)
 					stage = 1;
 				else
-				{
+				{// 关闭连接
 					buffer[0] = DISCONNECT;
 					buffer[1] = '\0';
 					sendto(socketClient, buffer, 2, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));

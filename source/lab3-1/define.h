@@ -4,14 +4,13 @@
 using namespace std;
 #define BUFFER 1024    // int类型 //缓冲区大小（以太网中 UDP 的数据帧中包长度应小于 1480 字节）
 #define WINDOWSIZE 10 //滑动窗口大小为 10，当改为1时即为停等协议
-#define TIMEOUT 5     // 超时
-#define S1 1
+#define TIMEOUT 2     // 超时
+#define S1 1 // 不同的状态
 #define S2 2
 #define S3 3
 #define S4 4
 #define S5 5
 #define DISCONNECT 0x001
-#define HEADER_LEN 23 // 19B
 // 数据包结构
 struct
     DataPackage
@@ -122,8 +121,8 @@ public:
     string filePath; // 文件的路径
     int fileLen;     // 文件大小 bits
     int packageSum;  // 需要分多少次发
-    bool read;
-    int fileLenRemain;
+    bool read; // 是否读取文件
+    int fileLenRemain; //文件最后一次发送的长度
     // 初始化文件
     void initFile(bool read, string fp)
     {
@@ -173,9 +172,6 @@ class Timer
 {
 public:
     clock_t start_time;
-    clock_t pause_time;
-    //两个bool值标记四种状态
-    bool is_pause; //记录计时器的状态 （是否处于暂停状态）
     bool is_stop;  //是否处于停止状态
     double timeout;
 
@@ -197,7 +193,7 @@ public:
 
 Timer::Timer()
 {
-    this->is_pause = false; //初始化计时器状态
+    //初始化计时器状态
     this->is_stop = true;
     // 初始化超时间隔
     this->timeout = TIMEOUT;

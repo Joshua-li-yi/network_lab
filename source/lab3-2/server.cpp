@@ -41,9 +41,10 @@ void IfTimeout(Timer &t)
 		t.Start();
 		for (int i = 0; i < WINDOWSIZE; ++i)
 		{
-			// DataPackage tmp;
-			// extract_pkt(sndpkt[i], tmp);
-			sendto(sockServer, sndpkt[i], BUFFER, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
+			DataPackage *tmp = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));;
+			extract_pkt(sndpkt[i], *tmp);
+			sendto(sockServer, (char*)tmp, sizeof(DataPackage) + tmp->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
+			delete tmp;
 		}
 	}
 }
@@ -51,23 +52,26 @@ void IfTimeout(Timer &t)
 // 窗口移动
 void window_shift()
 {
-	// 往前移一个
+	// 缓存区中往前移一个
 	for (int i = 0; i < WINDOWSIZE - 1; i++)
 		Strcpyn(sndpkt[i], sndpkt[i + 1], BUFFER);
-
+	// 窗口移动时需要新增加数据
 	if (base + WINDOWSIZE <= sendFile->packageSum)
 	{
-		// 需要增加新数据时，这个时候就需要发送新加入的数据包
-		// 不是最后一个的时候
+		// 还没有读到文件的最后一部分
 		if (offset != sendFile->packageSum - 1)
 		{
 			DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
 
 			char *tmp = new char[BUFFER - sizeof(DataPackage)];
+			// 打开文件
 			is->open(sendFile->filePath, ifstream::in | ios::binary);
+			// 定位到上次读取的位置
 			is->seekg(pos);
 			is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
+			// 获取现在的位置
 			pos = is->tellg();
+			// 关闭文件
 			is->close();
 
 			tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
@@ -77,8 +81,11 @@ void window_shift()
 			data->len = BUFFER - sizeof(DataPackage);
 			data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
 			nextseqnum++;
+			// 计算checksum
 			data->CheckSum((unsigned short *)data->message);
+			// 标志文件分段发送
 			data->flag = sendFile->packageSum;
+			// 现在是第几段
 			data->offset = offset;
 			offset++;
 			// 拷贝在缓冲区中
@@ -91,7 +98,7 @@ void window_shift()
 			delete data;
 		}
 		else
-		{
+		{ // 如果是文件的最后一部分
 			DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (sendFile->fileLenRemain + 1) * sizeof(char));
 			char *tmp = new char[sendFile->fileLenRemain + 1];
 			is->open(sendFile->filePath, ifstream::in | ios::binary);
@@ -129,9 +136,12 @@ void window_shift()
 // 窗口初始化
 void window_init()
 {
+	// 如果文件比较小，不能填满所有窗口
 	if (sendFile->packageSum <= WINDOWSIZE)
 	{
+		// 打开文件
 		is->open(sendFile->filePath, ifstream::in | ios::binary);
+		// 将数据包加入到缓存当中
 		for (int i = 0; i < sendFile->packageSum - 1; i++)
 		{
 			DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
@@ -143,8 +153,11 @@ void window_init()
 			data->len = BUFFER - sizeof(DataPackage);
 			data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
 			nextseqnum++;
+			// 计算checksum
 			data->CheckSum((unsigned short *)data->message);
+			// 文件需要分段发送
 			data->flag = sendFile->packageSum;
+			// 该数据包在第几个分段
 			data->offset = offset;
 			offset++;
 			// 拷贝在缓冲区中
@@ -163,6 +176,7 @@ void window_init()
 		data->len = sendFile->fileLenRemain + 1;
 		data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
 		nextseqnum++;
+
 		data->CheckSum((unsigned short *)data->message);
 		data->flag = sendFile->packageSum;
 		data->offset = offset;
@@ -188,7 +202,9 @@ void window_init()
 			data->len = BUFFER - sizeof(DataPackage);
 			data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
 			nextseqnum++;
+			// 计算checksum
 			data->CheckSum((unsigned short *)data->message);
+			// 文件需要分段发送
 			data->flag = sendFile->packageSum;
 			data->offset = offset;
 			offset++;
@@ -198,15 +214,19 @@ void window_init()
 		}
 		// 记录现在的文件位置
 		pos = is->tellg();
+		// 关闭文件
 		is->close();
 	}
+	// 开始发送现在的数据包
 	int k = 0;
 	while (k <= min_size)
 	{
 		DataPackage *tmp = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
 		extract_pkt(sndpkt[k], *tmp);
+		// 发送窗口中的数据包
 		if (tmp->seqNum < base + WINDOWSIZE)
 			sendto(sockServer, (char *)(tmp), sizeof(DataPackage) + tmp->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
+		// 打开计时器
 		ack_timer[tmp->seqNum % WINDOWSIZE].Start();
 		k++;
 	}
@@ -349,7 +369,7 @@ int main(int argc, char *argv[])
 					}
 					break;
 				}
-								case 2: //文件选择阶段
+				case 2: //文件选择阶段
 				{
 					cout << "==========file transport===========" << endl;
 					string filePath;
@@ -380,7 +400,7 @@ int main(int argc, char *argv[])
 						filename = "helloworld.txt";
 						cout << "the default file name is " << filename << endl;
 					}
-					
+
 					for (int i = 0; i < filename.length(); i++)
 						buffer[i] = filename[i];
 					buffer[filename.length()] = '\0';
@@ -403,7 +423,7 @@ int main(int argc, char *argv[])
 				{
 					// 文件小，直接一个包发过去，文件大需要多次发
 					// 文件长度只有package时
-					cout << "begin transport file ..." << endl;
+					// cout << "begin transport file ..." << endl;
 					if (sendFile->packageSum == 1)
 					{
 						totalT->Start();
@@ -472,8 +492,10 @@ int main(int argc, char *argv[])
 						// 如果是第一次打开文件
 						if (first_open_file)
 						{
+							// 总的计时器打开
 							totalT->Start();
 							first_open_file = false;
+							// 窗口初始化参数，mini_size赋值
 							if (sendFile->packageSum - 1 <= WINDOWSIZE - 1)
 								min_size = sendFile->packageSum - 1;
 							else
@@ -483,7 +505,6 @@ int main(int argc, char *argv[])
 						}
 						// 窗口初始化
 						window_init();
-						// 发送部分
 
 						// 发完现在所有窗口中的内容了，等待接收ACK
 						while (true)
@@ -504,20 +525,21 @@ int main(int argc, char *argv[])
 							}
 							else
 							{
-								cout << "get ack!!!" << endl;
+								// cout << "get ack!!!" << endl;
 								DataPackage *tmpData = new DataPackage();
 								extract_pkt(buffer, *tmpData);
-								// 接收到ACK，ACK等于期望的ACK，ACK不是重复的ACK，且包没有损坏, 且收到时没有超时
-								if (tmpData->ackflag & (tmpData->ackNum == expectACKnum) & (tmpData->ackNum != lastACKnum) & (!corrupt(tmpData)) & (!ack_timer[expectACKnum % WINDOWSIZE].TimeOut()))
+								// 接收到ACK，ACK不是重复的ACK，且包没有损坏, 且收到时没有超时
+								if (tmpData->ackflag & (tmpData->ackNum != lastACKnum) & (!corrupt(tmpData)))
 								{
-
 									cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
-									// stage = 4;
-									base++;
-									expectACKnum++;
+									// 累计确认
+									for (int i = base; i <= tmpData->ackNum; i++)
+										// 窗口移动
+										window_shift();
+									// base等于接收的ACK+1
+									base = tmpData->ackNum + 1;
+									expectACKnum = tmpData->ackNum + 1;
 									lastACKnum = tmpData->ackNum;
-									// 窗口需要移动，判断文件是否需要再次读取，
-									window_shift();
 								}
 								else
 								{

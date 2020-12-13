@@ -3,14 +3,13 @@
 #include "common.h"
 using namespace std;
 #define BUFFER 1024    // int类型 //缓冲区大小（以太网中 UDP 的数据帧中包长度应小于 1480 字节）
-#define WINDOWSIZE 5 //滑动窗口大小
+#define WINDOWSIZE 20 //滑动窗口大小
 #define TIMEOUT 2     // 超时,单位S, 代表着一组中所有的ACK都已经正确收到
 #define S1 1
 #define S2 2
 #define S3 3
 #define S4 4
 #define S5 5
-#define HEADER_LEN 23 // 19B
 // 数据包结构
 struct
     DataPackage

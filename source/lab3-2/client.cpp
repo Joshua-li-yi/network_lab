@@ -8,7 +8,6 @@
 SOCKADDR_IN addrServer; //服务器地址
 SOCKADDR_IN addrClient; //客户端地址
 
-const int SEQNUMBER = 20; //接收端序列号个数，为 1~20
 int expectedseqnum = 0;
 SOCKET socketClient;
 // 判断是否是期望的序列号
@@ -21,13 +20,6 @@ bool hasseqnum(DataPackage data, int expectedseqnum)
 		return false;
 	}
 }
-// TODO 有问题
-// void rdt_send(DataPackage *data)
-// {
-
-// 	sendto(socketClient, (char *)data, sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
-// 	expectedseqnum++;
-// }
 
 int main(int argc, char *argv[])
 {
@@ -92,19 +84,17 @@ int main(int argc, char *argv[])
 	for (i = 0; i < WINDOWSIZE; i++)
 		ZeroMemory(RetransmissionBuffer[i], sizeof(RetransmissionBuffer[i]));
 
-	BOOL ack_send[WINDOWSIZE]; //ack发送情况的记录，对应1-20的ack,刚开始全为false
-
-	for (i = 0; i < WINDOWSIZE; i++)
-		ack_send[i] = false; //记录哪一个成功接收了
-
 	int recvSize;
 	ofstream *outfile = new ofstream(); // 写文件
 	File *recvFile = new File();		// 文件操作
 	bool logout = false;				// 登出
 	bool runFlag = true;				// 是否run
-	unsigned int curACKnum = 0;
-	string filePath = "";
-
+	unsigned int curACKnum = 0; //当前的ack
+	string filePath = "";//文件路径
+	Timer *t = new Timer(); //累计确认计时器
+	t->timeout = 0.5;  // 500毫秒累计确认
+	int multipkgs = 5; //等待几个包传一次
+	int getpkgs = 0;   // 获得的包的个数
 	while (!logout)
 	{
 		//向服务器发送给0表示请求连接
@@ -128,7 +118,7 @@ int main(int argc, char *argv[])
 					stage = 1;
 				}
 				break;
-						case 1: //选择下载位置阶段
+			case 1: //选择下载位置阶段
 			{
 				if ((unsigned char)buffer[0] == S3)
 				{
@@ -145,7 +135,7 @@ int main(int argc, char *argv[])
 				if (recvSize >= 0)
 				{
 					string filename = buffer;
-					recvFile->initFile(false, filePath+filename);
+					recvFile->initFile(false, filePath + filename);
 					recvFile->WriteFile();
 					ZeroMemory(buffer, sizeof(buffer));
 					buffer[0] = S4;
@@ -159,7 +149,7 @@ int main(int argc, char *argv[])
 			{
 				if (recvSize >= 0)
 				{
-					cout << "get pkg from server ..." << endl;
+					// cout << "get pkg from server ..." << endl;
 
 					DataPackage recvData;
 					extract_pkt(buffer, recvData);
@@ -173,8 +163,6 @@ int main(int argc, char *argv[])
 						data->CheckSum((unsigned short *)data->message);
 						data->ackflag = 1;
 						data->len = 0;
-						// TODO 这样写为啥报错
-						// rdt_send(data);
 						sendto(socketClient, (char *)data, sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
 						expectedseqnum++;
 
@@ -192,41 +180,73 @@ int main(int argc, char *argv[])
 					}
 					else if ((recvData.flag > 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(&recvData)))
 					{
+						
 						// 文件分段接收
 						cout << "pkg " << recvData.seqNum << " not bad!" << endl;
-						// 发送ACK
-						// TODO 这样报错
-						// DataPackage* sendData = (DataPackage *)malloc(28);
-						DataPackage sendData;
-
-						sendData.ackNum = recvData.seqNum;
-						sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
-						sendData.CheckSum((unsigned short *)sendData.message);
-
-						sendData.ackflag = 1;
-						sendData.len = 0;
-						// 当前acknum
-						curACKnum = sendData.ackNum;
-						sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
-						expectedseqnum++;
-
-						cout << "begin write to file: " << recvFile->filePath << endl;
-						printf("begin write %d segment ...\n", recvData.offset);
-						if (recvData.offset < recvData.flag) // 直到所有分段发完
+						// 重新开始计时
+						if (getpkgs == 0)
+							t->Start();
+						// 如果没有超过500ms
+						if (!t->TimeOut())
 						{
-							// 打开文件在文件最后写入
-							outfile->open(recvFile->filePath, ios::out | ios::binary | ios::app);
-							outfile->write(recvData.message, recvData.len - 1);
-							// outfile->write("========12344======\n",20);
-							outfile->close();
-
-							if (recvData.offset == recvData.flag - 1)
+							getpkgs++;
+							// 期望值seq++
+							expectedseqnum++;
+							// 如果达到了累计的数据包就发送ack
+							if (getpkgs == multipkgs)
 							{
-								cout << "write file success!" << endl;
-								stage = 10;
-								runFlag = false;
-								logout = true;
+								// 重置getpkgs
+								getpkgs = 0;
+								DataPackage sendData;
+								sendData.ackNum = recvData.seqNum;
+								sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
+								sendData.CheckSum((unsigned short *)sendData.message);
+								sendData.ackflag = 1;
+								sendData.len = 0;
+								// 当前acknum
+								curACKnum = sendData.ackNum;
+								sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
 							}
+							// cout << "begin write to file: " << recvFile->filePath << endl;
+							printf("begin write %d segment ...\n", recvData.offset);
+							if (recvData.offset < recvData.flag) // 直到所有分段发完
+							{
+								// 打开文件在文件最后写入
+								outfile->open(recvFile->filePath, ios::out | ios::binary | ios::app);
+								outfile->write(recvData.message, recvData.len - 1);
+								outfile->close();
+
+								if (recvData.offset == recvData.flag - 1)
+								{
+									cout << "write file success!" << endl;
+									// 发送最后一段的ack
+									DataPackage sendData;
+									sendData.ackNum = recvData.seqNum;
+									sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
+									sendData.CheckSum((unsigned short *)sendData.message);
+									sendData.ackflag = 1;
+									sendData.len = 0;
+									// 当前acknum
+									curACKnum = sendData.ackNum;
+									sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
+									stage = 10;
+									runFlag = false;
+									logout = true;
+								}
+							}
+						}
+						else // 如果超过了500ms就抛弃掉现在的数据包，重新开始计时
+						{
+							getpkgs = 0;
+							// 发送ACK
+							DataPackage sendData;
+							// 发送上一次的ack
+							sendData.ackNum = curACKnum;
+							sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
+							sendData.CheckSum((unsigned short *)sendData.message);
+							sendData.ackflag = 1;
+							sendData.len = 0;
+							sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
 						}
 						stage = 2;
 					}
@@ -235,9 +255,11 @@ int main(int argc, char *argv[])
 						// 如果收到的不是对应期望的分组
 						cout << "get " << recvData.ackNum << " not get expectedseqnum " << expectedseqnum << endl;
 						DataPackage sendData;
+						// 发送上一次的ack
 						sendData.ackNum = curACKnum;
 						sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
 						sendData.CheckSum((unsigned short *)sendData.message);
+						// 记为ack数据包
 						sendData.ackflag = 1;
 						sendData.len = 0;
 						sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
