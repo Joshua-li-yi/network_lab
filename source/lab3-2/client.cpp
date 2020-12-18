@@ -253,7 +253,7 @@ int main(int argc, char *argv[])
 					else if ((recvData.flag > 0) & (!hasseqnum(recvData, expectedseqnum)) & (!corrupt(&recvData)))
 					{
 						// 如果收到的不是对应期望的分组
-						cout << "get " << recvData.ackNum << " not get expectedseqnum " << expectedseqnum << endl;
+						cout << "get " << recvData.seqNum << " not get expectedseqnum " << expectedseqnum << endl;
 						DataPackage sendData;
 						// 发送上一次的ack
 						sendData.ackNum = curACKnum;
