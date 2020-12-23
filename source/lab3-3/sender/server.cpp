@@ -34,27 +34,33 @@ int cwnd = 1;                   // 初始拥塞窗口
 int ssthresh = 20;               //拥塞控制阈值大小
 int congest_stage = 0;           // 拥塞控制的阶段， 0为慢启动解读，1为拥塞避免阶段,2为快速恢复阶段
 int dupACKcount = 0;           //实现RENO算法的计数
-int last_window_size = cwnd;
+int last_window_size = cwnd; // 上一次窗口的大小
 
-// 超时重传处理函数 重传现在缓冲区中所有的数据包
-void send_data(char *data, Timer *t = ack_timer, int wndsize = cwnd) {
+
+void send_data(char *data, Timer *t=ack_timer, int wndsize=cwnd) {
+    /*
+     * char *data: 要发送的数据
+     * Timer *t 对应的acktimer数组
+     * wndsize 当前的windsize大熊
+     */
     DataPackage *tmp = (DataPackage *) malloc(
             sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
+    // extrack package将char*转为DataPackage
     extract_pkt(data, *tmp);
     // 判断是不是空数据
     if (tmp->destPort != 0) {
         cout << "send: " << tmp->seqNum << endl;
-//        show_package(*tmp, false);
         sendto(sockServer, (char *) tmp, sizeof(DataPackage) + tmp->len, 0, (SOCKADDR *) &addrClient, sizeof(SOCKADDR));
+        // 开启对应的计时器
         t[tmp->seqNum % wndsize].Start();
     }
     delete tmp;
 }
 
+// 从文件中读取数据
 char *read_data_from_file() {
-    // 还没有读到文件的最后一部分
-    char *out_data = new char[BUFFER];
 
+    char *out_data = new char[BUFFER];
     DataPackage *data = (DataPackage *) malloc(
             sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
     char *tmp = new char[BUFFER - sizeof(DataPackage)];
@@ -72,6 +78,7 @@ char *read_data_from_file() {
     data->offset = offset;
     offset++;
 //    cout << "read data: " << data->seqNum << endl;
+    // 还没有读到文件的最后一部分
     if (offset != sendFile->packageSum - 1) {
         is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
         tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
@@ -80,7 +87,6 @@ char *read_data_from_file() {
         data->len = BUFFER - sizeof(DataPackage);
         // 计算checksum
         data->CheckSum((unsigned short *) data->message);
-//        cout<<data->message<<endl;
         // 拷贝在缓冲区中
         Strcpyn(out_data, (char *) data, BUFFER);
     } else { // 如果是文件的最后一部分
@@ -90,7 +96,7 @@ char *read_data_from_file() {
         data->len = sendFile->fileLenRemain + 1;
         // 计算checksum
         data->CheckSum((unsigned short *) data->message);
-
+        // 拷贝在缓冲区中
         Strcpyn(out_data, (char *) data,
                 sizeof(DataPackage) + (sendFile->fileLenRemain + 1) * sizeof(char));
     }
@@ -101,6 +107,7 @@ char *read_data_from_file() {
     is->close();
     delete tmp;
     delete data;
+    // 返回读取出来的数据
     return out_data;
 }
 
@@ -108,13 +115,14 @@ char *read_data_from_file() {
 void window_flash() {
     // 如果窗口扩展
     if (cwnd > last_window_size) {
+        // 初始化扩展后的窗口和ack timer
         char **tmp_sndpkt;
         Timer *tmp_ack_timer;
         tmp_sndpkt = new char *[cwnd];
         tmp_ack_timer = new Timer[cwnd];
         for (int i = 0; i < cwnd; i++)
             tmp_sndpkt[i] = new char[BUFFER];
-
+        // 将之前的数据复制过来
         for (int i = 0; i < last_window_size; i++) {
             tmp_sndpkt[i] = sndpkt[i];
             tmp_ack_timer[i] = ack_timer[i];
@@ -125,7 +133,6 @@ void window_flash() {
             // 窗口移动时需要新增加数据
             if (offset < sendFile->packageSum) {
                 tmp_sndpkt[i] = read_data_from_file();
-//                send_data(tmp_sndpkt[i], tmp_ack_timer);
             } else {
                 // 不需要增加新数据时
                 ZeroMemory(tmp_sndpkt[i], BUFFER);
@@ -133,9 +140,8 @@ void window_flash() {
         }
         sndpkt = tmp_sndpkt;
         ack_timer = tmp_ack_timer;
-    } else if (cwnd < last_window_size) { // 如果窗口缩小
-    } else { // 窗口大小不变不用管
     }
+    // 其他情况不用管
 }
 
 // 超时重传处理函数 重传现在缓冲区中所有的数据包
@@ -143,27 +149,35 @@ void IfTimeout(Timer &t) {
     // 如果超时
     if (t.TimeOut()) {
         printf("Timer out error.\n");
+        // 重启计时器
         t.Start();
         congest_stage = 0; // 回到慢启动阶段
+
         ssthresh = int(cwnd / 2);
         dupACKcount = 0;
+        // 重传现在缓冲区中所有的数据包
         for (int i = 0; i < cwnd; ++i)
             send_data(sndpkt[i]);
         last_window_size = cwnd;
         cwnd = 1;
+        // 重整窗口
         window_flash();
     }
 }
 
 // 判断是否进入快速恢复阶段
 void IfFastRecoveryStage() {
+    // 如果收到三次重复的ack
     if (dupACKcount == 3) {
+        // 重传现在所有的缓冲区中的数据
         for (int i = 0; i < cwnd; ++i)
             send_data(sndpkt[i]);
+        // 进入快速恢复阶段
         congest_stage = 2;
         ssthresh = int(cwnd / 2);
         last_window_size = cwnd;
         cwnd = ssthresh + 3;
+        // 重整窗口
         window_flash();
     }
 }
@@ -190,6 +204,7 @@ void window_init() {
     send_data(sndpkt[0]);
 }
 
+// 拥塞控制
 void congest_control() {
     // 进入拥塞避免阶段
     if (cwnd >= ssthresh)
@@ -198,33 +213,40 @@ void congest_control() {
     ZeroMemory(buffer, sizeof(buffer));
     recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *) &addrClient), &length);
     if (recvSize < 0) {
+        // 判断期望的数据包是否超时
         IfTimeout(ack_timer[expectACKnum % cwnd]);
     } else {
-        // cout << "get ack!!!" << endl;
         DataPackage *tmpData = new DataPackage();
+        // extrack package将char*转为DataPackage
         extract_pkt(buffer, *tmpData);
-        // 接收到ACK，ACK不是重复的ACK，且包没有损坏, 且收到时没有超时
+        // 接收到ACK，且包没有损坏
         if (tmpData->ackflag & (!corrupt(tmpData))) {
-//            cout << "stage: " << congest_stage << endl;
+//
             switch (congest_stage) {
                 case 0: { // 慢启动阶段
                     if ((int) tmpData->ackNum > lastACKnum) {
                         cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
                         last_window_size = cwnd;
+                        // 现在的窗口大小改变
                         cwnd = cwnd + tmpData->ackNum - lastACKnum;
                         lastACKnum = tmpData->ackNum;
                         dupACKcount = 0;
                         for (int i = base; i <= tmpData->ackNum; i++)
                             // 窗口移动
                             window_shift();
+                        // base和expectACKnum为收到的acknum+1
                         base = tmpData->ackNum + 1;
                         expectACKnum = tmpData->ackNum + 1;
+                        // 重整窗口
                         window_flash();
+                        // 发送缓冲区中的数据
                         for (int i = 0; i < cwnd; ++i)
                             send_data(sndpkt[i]);
                     } else if ((int) tmpData->ackNum == lastACKnum) {
+                        // 如果收到重复的ack
                         dupACKcount++;
                     }
+                    // 判断是否进入快速恢复阶段
                     IfFastRecoveryStage();
                     break;
                 }
@@ -232,6 +254,7 @@ void congest_control() {
                     if ((int) tmpData->ackNum > lastACKnum) {
                         cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
                         last_window_size = cwnd;
+                        // 现在的窗口大小改变
                         cwnd = cwnd + int((tmpData->ackNum - lastACKnum) / cwnd);
                         lastACKnum = tmpData->ackNum;
                         dupACKcount = 0;
@@ -239,38 +262,47 @@ void congest_control() {
                         for (int i = base; i <= tmpData->ackNum; i++)
                             // 窗口移动
                             window_shift();
+                        // 重整窗口
                         window_flash();
                         base = tmpData->ackNum + 1;
                         expectACKnum = tmpData->ackNum + 1;
+                        // 发送缓冲区中的数据
                         for (int i = 0; i < cwnd; ++i)
                             send_data(sndpkt[i]);
 
                     } else if ((int) tmpData->ackNum == lastACKnum) {
+                        // 如果收到重复的ack
                         dupACKcount++;
                     }
+                    // 判断是否进入快速恢复阶段
                     IfFastRecoveryStage();
                     break;
                 }
                 case 2: { // 快速恢复阶段
                     if ((int) tmpData->ackNum > lastACKnum) {
+                        // 如果获得新的ack
                         cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
 
                         congest_stage = 2; // 进入拥塞避免阶段
                         last_window_size = cwnd;
+                        // 改变窗口大小
                         cwnd = ssthresh;
                         lastACKnum = tmpData->ackNum;
                         dupACKcount = 0;
                         for (int i = base; i <= tmpData->ackNum; i++)
                             // 窗口移动
                             window_shift();
+                        // 重整窗口
                         window_flash();
                         base = tmpData->ackNum + 1;
                         expectACKnum = tmpData->ackNum + 1;
                     } else if ((int) tmpData->ackNum == lastACKnum) {
+                        // 如果收到重复的ack
                         last_window_size = cwnd;
                         cwnd = cwnd + 1;
                         for (int i = 0; i < cwnd; ++i)
                             send_data(sndpkt[i]);
+                        // 重整窗口
                         window_flash();
                     }
                     break;
@@ -311,14 +343,14 @@ int main(int argc, char *argv[]) {
     int server_port = -1;
     string server_ip = "-1";
     cout << "please input ip addr: ";
-//    cin >> server_ip;
+    cin >> server_ip;
     if (server_ip == "-1") {
         cout << "\tdefault IP:  " << SERVER_IP << "\n";
         server_ip = SERVER_IP;
     }
 
     cout << "please input sever port: ";
-//    cin >> server_port;
+    cin >> server_port;
     if (server_port == -1) {
         cout << "\tdefault port: " << SERVER_PORT << "\n";
         server_port = SERVER_PORT;
@@ -416,7 +448,6 @@ int main(int argc, char *argv[]) {
                         cin >> filePath;
                         if (filePath == "-1") {
                             filePath = "..\\test\\helloworld.txt";
-//                            filePath = "..\\test\\1.txt";
                             cout << "the default file path is " << filePath << endl;
                         }
 
@@ -435,7 +466,6 @@ int main(int argc, char *argv[]) {
                         cin >> filename;
                         if (filename == "-1") {
                             filename = "helloworld.txt";
-//                            filename = "1.txt";
                             cout << "the default file name is " << filename << endl;
                         }
 
@@ -535,6 +565,7 @@ int main(int argc, char *argv[]) {
                                     offset = 0;
                                     break;
                                 }
+                                // 拥塞控制
                                 congest_control();
                             }
                         }

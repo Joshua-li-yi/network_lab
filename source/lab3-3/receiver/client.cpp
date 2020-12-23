@@ -53,7 +53,7 @@ int main(int argc, char *argv[])
     int client_port = -1;
     string client_ip = "-1";
     cout << "please input client ip addr: ";
-//    cin >> client_ip;
+    cin >> client_ip;
     if (client_ip == "-1")
     {
         std ::cout << "\tdefault IP: " << CLIENT_IP << "\n";
@@ -61,7 +61,7 @@ int main(int argc, char *argv[])
     }
     const char *client_ip_const = client_ip.c_str();
     cout << "please input client port: ";
-//    cin >> client_port;
+    cin >> client_port;
     if (client_port == -1)
     {
         cout << "\tdefault port: " << CLIENT_PORT << "\n";
@@ -125,7 +125,12 @@ int main(int argc, char *argv[])
                         cout << "server has select file to transport!!!" << endl;
                         cout << "please select path to download this file ..." << endl;
                         filePath = "../recv/";
-//                        cin >> filePath;
+                        cin >> filePath;
+                        if(filePath=="-1")
+                        {
+                            filePath = "../recv/";
+                            cout<<"the default file path is: "<<filePath<<endl;
+                        }
                         stage = 50;
                     }
                     break;
@@ -149,8 +154,6 @@ int main(int argc, char *argv[])
                 {
                     if (recvSize >= 0)
                     {
-                        // cout << "get pkg from server ..." << endl;
-
                         DataPackage recvData;
                         extract_pkt(buffer, recvData);
                         // 如果是所期望的包的话
@@ -192,7 +195,7 @@ int main(int argc, char *argv[])
                                 getpkgs++;
                                 // 期望值seq++
                                 expectedseqnum++;
-                                // 如果达到了累计的数据包就发送ack
+                                // 如果达到了累计的数据包或者小于multipkg，为了处理慢启动阶段开始的时候发生的重传现象，就发送ack
                                 if ((getpkgs == multipkgs)|recvData.offset<multipkgs)
                                 {
                                     // 重置getpkgs

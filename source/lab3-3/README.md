@@ -1,10 +1,10 @@
 <center><font size=8 face="楷体">基于UDP服务设计可靠传输协议并编程实现</font></center>
 
-<center><font size=5 face="楷体">第二次实验报告</font></center>
+<center><font size=5 face="楷体">第三次实验报告</font></center>
 
 <center><font face="楷体">1811379 李毅</font></center>
 
-<center><font face="楷体">日期：2020年12月13日</font></center>
+<center><font face="楷体">日期：2020年12月23日</font></center>
 
 # 目录
 
@@ -12,9 +12,9 @@
 
 <h2><center>摘要</center></h2>
 
-​			本实验使用了基于UDP的非阻塞socket编程，完成了建立连接、差错检测、确认重传，累计确认等部分。流量控制采用滑动窗口，并完成了给定测试文件的传输。
+​			本实验使用了基于UDP的非阻塞socket编程，完成了建立连接、差错检测、确认重传，累计确认等部分。流量控制采用滑动窗口，并实现了RENO拥塞控制算法，完成了给定测试文件的传输。
 
-**关键字：**UDP，可靠传输，滑动窗口，累计确认
+**关键字：**UDP，可靠传输，滑动窗口，累计确认，RENO拥塞控制
 
 
 
@@ -32,7 +32,7 @@
 
 ### （3）实验完成情况
 
-完成了建立连接、差错检测、确认重传，累计确认等部分。流量控制采用滑动窗口，完成了给定测试文件的传输。
+完成了建立连接、差错检测、确认重传，累计确认等部分。流量控制采用滑动窗口，并实现了RENO拥塞控制算法，完成了给定测试文件的传输。
 
 ## 二、协议
 
@@ -110,202 +110,12 @@ bool corrupt(DataPackage *data)
 }
 ```
 
-### （2）窗口的操作
+### （2）拥塞控制
 
-#### 1、窗口的初始化
+实现的是RENO拥塞控制算法
 
-初始化窗口，并发送初始化窗口中的内容
 
-```c++
-// 窗口初始化
-void window_init()
-{
-	// 如果文件比较小，不能填满所有窗口
-	if (sendFile->packageSum <= WINDOWSIZE)
-	{
-		// 打开文件
-		is->open(sendFile->filePath, ifstream::in | ios::binary);
-		// 将数据包加入到缓存当中
-		for (int i = 0; i < sendFile->packageSum - 1; i++)
-		{
-			DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-			char *tmp = new char[BUFFER - sizeof(DataPackage)];
-			is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
-			tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
-			Strcpyn(data->message, tmp, BUFFER - sizeof(DataPackage));
-			delete tmp;
-			data->len = BUFFER - sizeof(DataPackage);
-			data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
-			nextseqnum++;
-			// 计算checksum
-			data->CheckSum((unsigned short *)data->message);
-			// 文件需要分段发送
-			data->flag = sendFile->packageSum;
-			// 该数据包在第几个分段
-			data->offset = offset;
-			offset++;
-			// 拷贝在缓冲区中
-			Strcpyn(sndpkt[i], (char *)data, sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
 
-			delete data;
-		}
-		// 最后一部分
-		DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (sendFile->fileLenRemain + 1) * sizeof(char));
-		char *tmp = new char[sendFile->fileLenRemain + 1];
-		is->read(tmp, sendFile->fileLenRemain);
-		is->close();
-		tmp[sendFile->fileLenRemain] = '\0';
-		Strcpyn(data->message, tmp, sendFile->fileLenRemain + 1);
-		delete tmp;
-		data->len = sendFile->fileLenRemain + 1;
-		data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
-		nextseqnum++;
-
-		data->CheckSum((unsigned short *)data->message);
-		data->flag = sendFile->packageSum;
-		data->offset = offset;
-		offset++;
-		Strcpyn(sndpkt[sendFile->packageSum - 1], (char *)data, sizeof(DataPackage) + (sendFile->fileLenRemain + 1) * sizeof(char));
-		delete data;
-		// 其他地方都置为0
-		for (int i = sendFile->packageSum; i < WINDOWSIZE; i++)
-			ZeroMemory(sndpkt[i], BUFFER);
-	}
-	else
-	{ // 如果文件太大，一个窗口放不下
-		is->open(sendFile->filePath, ifstream::in | ios::binary);
-		for (int i = 0; i < WINDOWSIZE; i++)
-		{
-			DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-			char *tmp = new char[BUFFER - sizeof(DataPackage)];
-			is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
-			tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
-			Strcpyn(data->message, tmp, BUFFER - sizeof(DataPackage));
-			delete tmp;
-
-			data->len = BUFFER - sizeof(DataPackage);
-			data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
-			nextseqnum++;
-			// 计算checksum
-			data->CheckSum((unsigned short *)data->message);
-			// 文件需要分段发送
-			data->flag = sendFile->packageSum;
-			data->offset = offset;
-			offset++;
-			// 拷贝在缓冲区中
-			Strcpyn(sndpkt[i], (char *)data, sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-			delete data;
-		}
-		// 记录现在的文件位置
-		pos = is->tellg();
-		// 关闭文件
-		is->close();
-	}
-	// 开始发送现在的数据包
-	int k = 0;
-	while (k <= min_size)
-	{
-		DataPackage *tmp = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-		extract_pkt(sndpkt[k], *tmp);
-		// 发送窗口中的数据包
-		if (tmp->seqNum < base + WINDOWSIZE)
-			sendto(sockServer, (char *)(tmp), sizeof(DataPackage) + tmp->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-		// 打开计时器
-		ack_timer[tmp->seqNum % WINDOWSIZE].Start();
-		k++;
-	}
-}
-```
-
-#### 2、窗口的移动
-
-窗口移动，每次向前移动一格，如果需要读取新的数据，就读取数据并发送，同时打开计时器
-
-```c++
-// 窗口移动
-void window_shift()
-{
-	// 缓存区中往前移一个
-	for (int i = 0; i < WINDOWSIZE - 1; i++)
-		Strcpyn(sndpkt[i], sndpkt[i + 1], BUFFER);
-	// 窗口移动时需要新增加数据
-	if (base + WINDOWSIZE <= sendFile->packageSum)
-	{
-		// 还没有读到文件的最后一部分
-		if (offset != sendFile->packageSum - 1)
-		{
-			DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-
-			char *tmp = new char[BUFFER - sizeof(DataPackage)];
-			// 打开文件
-			is->open(sendFile->filePath, ifstream::in | ios::binary);
-			// 定位到上次读取的位置
-			is->seekg(pos);
-			is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
-			// 获取现在的位置
-			pos = is->tellg();
-			// 关闭文件
-			is->close();
-
-			tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
-
-			Strcpyn(data->message, tmp, BUFFER - sizeof(DataPackage));
-			delete tmp;
-			data->len = BUFFER - sizeof(DataPackage);
-			data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
-			nextseqnum++;
-			// 计算checksum
-			data->CheckSum((unsigned short *)data->message);
-			// 标志文件分段发送
-			data->flag = sendFile->packageSum;
-			// 现在是第几段
-			data->offset = offset;
-			offset++;
-			// 拷贝在缓冲区中
-			Strcpyn(sndpkt[WINDOWSIZE - 1], (char *)data, sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-			// 发送数据
-			if (data->seqNum < base + WINDOWSIZE)
-				sendto(sockServer, (char *)(data), sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-			// 开启计时器
-			ack_timer[data->seqNum % WINDOWSIZE].Start();
-			delete data;
-		}
-		else
-		{ // 如果是文件的最后一部分
-			DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (sendFile->fileLenRemain + 1) * sizeof(char));
-			char *tmp = new char[sendFile->fileLenRemain + 1];
-			is->open(sendFile->filePath, ifstream::in | ios::binary);
-			is->seekg(pos);
-			is->read(tmp, sendFile->fileLenRemain);
-			pos = is->tellg();
-			is->close();
-
-			tmp[sendFile->fileLenRemain] = '\0';
-			Strcpyn(data->message, tmp, sendFile->fileLenRemain + 1);
-			delete tmp;
-			data->len = sendFile->fileLenRemain + 1;
-			data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
-			nextseqnum++;
-			data->CheckSum((unsigned short *)data->message);
-			data->flag = sendFile->packageSum;
-			data->offset = offset;
-			offset++;
-			Strcpyn(sndpkt[WINDOWSIZE - 1], (char *)data, sizeof(DataPackage) + (sendFile->fileLenRemain + 1) * sizeof(char));
-			// 发送数据
-			if (data->seqNum < base + WINDOWSIZE)
-				sendto(sockServer, (char *)(data), sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-			// 开启计时器
-			ack_timer[data->seqNum % WINDOWSIZE].Start();
-			delete data;
-		}
-	}
-	else
-	{
-		// 不需要增加新数据时
-		ZeroMemory(sndpkt[WINDOWSIZE - 1], BUFFER);
-	}
-}
-```
 
 ### （3） 累计确认
 
@@ -1210,23 +1020,25 @@ void IfTimeout(Timer &t)
 
 #### 1、建立连接
 
-![](E:\Typora\imgs\image-20201213174039462.png)
+![image-20201223060917757](E:\Typora\imgs\image-20201223060917757.png)
 
 #### 2、发送文件
 
-![image-20201213222218113](E:\Typora\imgs\image-20201213222218113.png)
+![image-20201223061004487](E:\Typora\imgs\image-20201223061004487.png)
 
-![image-20201213222045183](E:\Typora\imgs\image-20201213222045183.png)
+![image-20201223061025029](E:\Typora\imgs\image-20201223061025029.png)
 
 #### 3、发送完毕
 
-![image-20201213222026648](E:\Typora\imgs\image-20201213222026648.png)
+![image-20201223061117230](E:\Typora\imgs\image-20201223061117230.png)
 
 #### 4、发送结果
 
-![image-20201213221024449](E:\Typora\imgs\image-20201213221024449.png)
+![image-20201223061159481](E:\Typora\imgs\image-20201223061159481.png)
 
-没有错误
+图片的发送和接收也没有错误
+
+![image-20201223061304150](E:\Typora\imgs\image-20201223061304150.png)
 
 ![image-20201213221933224](E:\Typora\imgs\image-20201213221933224.png)
 
@@ -1234,8 +1046,8 @@ void IfTimeout(Timer &t)
 
 |      文件      | 发送时间/s |
 | :------------: | :--------: |
-| helloworld.txt |  104.566s  |
-|     1.jpg      |  118.543s  |
+| helloworld.txt |  17.929s  |
+|     1.jpg      |  19.122s  |
 |     2.jpg      |  44.726s   |
 |     3.jpg      |  80.772s   |
 
