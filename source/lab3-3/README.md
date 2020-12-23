@@ -114,6 +114,256 @@ bool corrupt(DataPackage *data)
 
 实现的是RENO拥塞控制算法
 
+示意图
+
+![image-20201223160343373](E:\Typora\imgs\image-20201223160343373.png)
+
+#### 1、一些基本变量
+
+```c++
+// 用二维数组实现长度变化的窗口大小
+char **sndpkt; // 缓冲区
+int cwnd = 1;                   // 拥塞窗口大小
+int ssthresh = 20;               //拥塞控制阈值大小
+int congest_stage = 0;           // 拥塞控制的阶段， 0为慢启动解读，1为拥塞避免阶段,2为快速恢复阶段
+int dupACKcount = 0;           //实现RENO算法的计数
+int last_window_size = cwnd; // 上一次窗口的大小
+```
+
+
+
+#### 2、窗口初始化
+
+```c++
+// 窗口初始化
+void window_init() {
+    sndpkt[0] = read_data_from_file();
+    // 开始发送现在的数据包
+    send_data(sndpkt[0]);
+}
+```
+
+#### 3、重整窗口
+
+当窗口大小发生变化的时候
+
+判断窗口是否扩展
+
+```c++
+// 重整窗口
+void window_flash() {
+    // 如果窗口扩展
+    if (cwnd > last_window_size) {
+        // 初始化扩展后的窗口和ack timer
+        char **tmp_sndpkt;
+        Timer *tmp_ack_timer;
+        tmp_sndpkt = new char *[cwnd];
+        tmp_ack_timer = new Timer[cwnd];
+        for (int i = 0; i < cwnd; i++)
+            tmp_sndpkt[i] = new char[BUFFER];
+        // 将之前的数据复制过来
+        for (int i = 0; i < last_window_size; i++) {
+            tmp_sndpkt[i] = sndpkt[i];
+            tmp_ack_timer[i] = ack_timer[i];
+        }
+
+        // 往新增的窗口中添加数据
+        for (int i = last_window_size; i < cwnd; i++) {
+            // 窗口移动时需要新增加数据
+            if (offset < sendFile->packageSum) {
+                tmp_sndpkt[i] = read_data_from_file();
+            } else {
+                // 不需要增加新数据时
+                ZeroMemory(tmp_sndpkt[i], BUFFER);
+            }
+        }
+        sndpkt = tmp_sndpkt;
+        ack_timer = tmp_ack_timer;
+    }
+    // 其他情况不用管
+}
+```
+
+#### 4、超时重传
+
+```c++
+void IfTimeout(Timer &t) {
+    // 如果超时
+    if (t.TimeOut()) {
+        printf("Timer out error.\n");
+        // 重启计时器
+        t.Start();
+        congest_stage = 0; // 回到慢启动阶段
+
+        ssthresh = int(cwnd / 2);
+        dupACKcount = 0;
+        // 重传现在缓冲区中所有的数据包
+        for (int i = 0; i < cwnd; ++i)
+            send_data(sndpkt[i]);
+        last_window_size = cwnd;
+        cwnd = 1;
+        // 重整窗口
+        window_flash();
+    }
+}
+```
+
+#### 5、快速恢复阶段
+
+```c++
+// 判断是否进入快速恢复阶段
+void IfFastRecoveryStage() {
+    // 如果收到三次重复的ack
+    if (dupACKcount == 3) {
+        // 重传现在所有的缓冲区中的数据
+        for (int i = 0; i < cwnd; ++i)
+            send_data(sndpkt[i]);
+        // 进入快速恢复阶段
+        congest_stage = 2;
+        ssthresh = int(cwnd / 2);
+        last_window_size = cwnd;
+        cwnd = ssthresh + 3;
+        // 重整窗口
+        window_flash();
+    }
+}
+```
+
+#### 6、窗口移动
+
+```c++
+// 窗口移动
+void window_shift() {
+    // 缓存区中往前移一个
+    for (int i = 0; i < last_window_size - 1; i++)
+        Strcpyn(sndpkt[i], sndpkt[i + 1], BUFFER);
+    // 窗口移动时需要新增加数据
+    if (offset < sendFile->packageSum) {
+        sndpkt[last_window_size - 1] = read_data_from_file();
+    } else {
+        // 不需要增加新数据时
+        ZeroMemory(sndpkt[last_window_size - 1], BUFFER);
+    }
+}
+```
+
+#### 7、拥塞控制
+
+```c++
+
+// 拥塞控制
+void congest_control() {
+    // 进入拥塞避免阶段
+    if (cwnd >= ssthresh)
+        congest_stage = 1;
+    int recvSize;
+    ZeroMemory(buffer, sizeof(buffer));
+    recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *) &addrClient), &length);
+    if (recvSize < 0) {
+        // 判断期望的数据包是否超时
+        IfTimeout(ack_timer[expectACKnum % cwnd]);
+    } else {
+        DataPackage *tmpData = new DataPackage();
+        // extrack package将char*转为DataPackage
+        extract_pkt(buffer, *tmpData);
+        // 接收到ACK，且包没有损坏
+        if (tmpData->ackflag & (!corrupt(tmpData))) {
+            
+            switch (congest_stage) {
+                case 0: { // 慢启动阶段
+                    if ((int) tmpData->ackNum > lastACKnum) {
+                        cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
+                        last_window_size = cwnd;
+                        // 现在的窗口大小改变
+                        cwnd = cwnd + tmpData->ackNum - lastACKnum;
+                        lastACKnum = tmpData->ackNum;
+                        dupACKcount = 0;
+                        for (int i = base; i <= tmpData->ackNum; i++)
+                            // 窗口移动
+                            window_shift();
+                        // base和expectACKnum为收到的acknum+1
+                        base = tmpData->ackNum + 1;
+                        expectACKnum = tmpData->ackNum + 1;
+                        // 重整窗口
+                        window_flash();
+                        // 发送缓冲区中的数据
+                        for (int i = 0; i < cwnd; ++i)
+                            send_data(sndpkt[i]);
+                    } else if ((int) tmpData->ackNum == lastACKnum) {
+                        // 如果收到重复的ack
+                        dupACKcount++;
+                    }
+                    // 判断是否进入快速恢复阶段
+                    IfFastRecoveryStage();
+                    break;
+                }
+                case 1: { // 拥塞避免阶段
+                    if ((int) tmpData->ackNum > lastACKnum) {
+                        cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
+                        last_window_size = cwnd;
+                        // 现在的窗口大小改变
+                        cwnd = cwnd + int((tmpData->ackNum - lastACKnum) / cwnd);
+                        lastACKnum = tmpData->ackNum;
+                        dupACKcount = 0;
+
+                        for (int i = base; i <= tmpData->ackNum; i++)
+                            // 窗口移动
+                            window_shift();
+                        // 重整窗口
+                        window_flash();
+                        base = tmpData->ackNum + 1;
+                        expectACKnum = tmpData->ackNum + 1;
+                        // 发送缓冲区中的数据
+                        for (int i = 0; i < cwnd; ++i)
+                            send_data(sndpkt[i]);
+
+                    } else if ((int) tmpData->ackNum == lastACKnum) {
+                        // 如果收到重复的ack
+                        dupACKcount++;
+                    }
+                    // 判断是否进入快速恢复阶段
+                    IfFastRecoveryStage();
+                    break;
+                }
+                case 2: { // 快速恢复阶段
+                    if ((int) tmpData->ackNum > lastACKnum) {
+                        // 如果获得新的ack
+                        cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
+
+                        congest_stage = 2; // 进入拥塞避免阶段
+                        last_window_size = cwnd;
+                        // 改变窗口大小
+                        cwnd = ssthresh;
+                        lastACKnum = tmpData->ackNum;
+                        dupACKcount = 0;
+                        for (int i = base; i <= tmpData->ackNum; i++)
+                            // 窗口移动
+                            window_shift();
+                        // 重整窗口
+                        window_flash();
+                        base = tmpData->ackNum + 1;
+                        expectACKnum = tmpData->ackNum + 1;
+                    } else if ((int) tmpData->ackNum == lastACKnum) {
+                        // 如果收到重复的ack
+                        last_window_size = cwnd;
+                        cwnd = cwnd + 1;
+                        for (int i = 0; i < cwnd; ++i)
+                            send_data(sndpkt[i]);
+                        // 重整窗口
+                        window_flash();
+                    }
+                    break;
+                }
+            }
+        } else {
+            cout << "something error" << endl;
+            IfTimeout(ack_timer[expectACKnum % cwnd]);
+        }
+        delete tmpData;
+    }
+}
+```
+
 
 
 
@@ -126,7 +376,7 @@ bool corrupt(DataPackage *data)
 ```c++
 	Timer *t = new Timer();
 	t->timeout = 0.5;  // 500毫秒累计确认
-	int multipkgs = 5; // 等待几个包传一次
+	int multipkgs = 3; // 等待几个包传一次
 	int getpkgs = 0; // 现在已经获得的包的个数
 ```
 
@@ -145,8 +395,9 @@ bool corrupt(DataPackage *data)
 							getpkgs++;
                             	// 期望值seq++
 							expectedseqnum++;
-							// 如果达到了累计的数据包就发送ack
-							if (getpkgs == multipkgs)
+							// 如果达到了累计的数据包，发送ack
+                           	 	// 或者小于multipkg，为了处理慢启动阶段开始的时候发生的重传现象
+                              if ((getpkgs == multipkgs) | recvData.offset < multipkgs) {
 							{
 								// 重置getpkgs
 								getpkgs = 0;
@@ -225,39 +476,28 @@ bool corrupt(DataPackage *data)
 
 发送端
 
++ 如果实在慢启动阶段的话，就使cwnd 扩展接收到的acknum - lastacknum
+
 ```c++
-							ZeroMemory(buffer, sizeof(buffer));
-							recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *)&addrClient), &length);
-							if (recvSize < 0)
-							{
-								IfTimeout(ack_timer[expectACKnum % WINDOWSIZE]);
-							}
-							else
-							{
-								// cout << "get ack!!!" << endl;
-								DataPackage *tmpData = new DataPackage();
-								extract_pkt(buffer, *tmpData);
-								// 接收到ACK，ACK不是重复的ACK，且包没有损坏, 且收到时没有超时
-								if (tmpData->ackflag & (tmpData->ackNum != lastACKnum) & (!corrupt(tmpData)))
-								{
-									cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
-									// 累计确认
-									for (int i = base; i <= tmpData->ackNum; i++)
-										// 窗口移动
-										window_shift();
-									// base等于接收的ACK+1
-									base = tmpData->ackNum + 1;
-									expectACKnum = tmpData->ackNum + 1;
-									lastACKnum = tmpData->ackNum;
-									
-								}
-								else
-								{
-									cout << "something error" << endl;
-									IfTimeout(ack_timer[expectACKnum % WINDOWSIZE]);
-								}
-								delete tmpData;
-							}
+                case 0: { // 慢启动阶段
+                    if ((int) tmpData->ackNum > lastACKnum) {
+                        cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
+                        last_window_size = cwnd;
+                        // 现在的窗口大小改变
+                        cwnd = cwnd + tmpData->ackNum - lastACKnum;
+```
+
++ 如果是在拥塞避免阶段的话,就扩展 int((ackNum - lastACKnum) / cwnd)的窗口大小
+
+```c++
+                case 1: { // 拥塞避免阶段
+                    if ((int) tmpData->ackNum > lastACKnum) {
+                        cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
+                        last_window_size = cwnd;
+                        // 现在的窗口大小改变
+                        cwnd = cwnd + int((tmpData->ackNum - lastACKnum) / cwnd);
+                        lastACKnum = tmpData->ackNum;
+                        dupACKcount = 0;
 ```
 
 
@@ -993,26 +1233,7 @@ void extract_pkt(char *message, DataPackage &resultdata)
 }
 ```
 
-#### 4、IfTimeout(Timer &t)
 
-```c++
-// 超时重传处理函数 重传现在缓冲区中所有的数据包
-void IfTimeout(Timer &t)
-{
-	if (t.TimeOut())
-	{
-		printf("Timer out error.\n");
-		t.Start();
-		for (int i = 0; i < WINDOWSIZE; ++i)
-		{
-			DataPackage *tmp = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));;
-			extract_pkt(sndpkt[i], *tmp);
-			sendto(sockServer, (char*)tmp, sizeof(DataPackage) + tmp->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-			delete tmp;
-		}
-	}
-}
-```
 
 
 
@@ -1049,7 +1270,7 @@ void IfTimeout(Timer &t)
 | helloworld.txt |  17.929s  |
 |     1.jpg      |  19.122s  |
 |     2.jpg      |  44.726s   |
-|     3.jpg      |  80.772s   |
+|     3.jpg      | 104.522s |
 
 
 
