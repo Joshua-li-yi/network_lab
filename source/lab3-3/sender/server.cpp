@@ -16,6 +16,7 @@ SOCKET sockServer;
 
 int length = sizeof(SOCKADDR);
 char buffer[BUFFER];                      //数据发送接收缓冲区
+
 Timer *ack_timer; // 标志每一个包的Timer
 
 char **sndpkt; // 缓冲区
@@ -35,9 +36,20 @@ int ssthresh = 20;               //拥塞控制阈值大小
 int congest_stage = 0;           // 拥塞控制的阶段， 0为慢启动解读，1为拥塞避免阶段,2为快速恢复阶段
 int dupACKcount = 0;           //实现RENO算法的计数
 int last_window_size = cwnd; // 上一次窗口的大小
+// 处理连接时包丢失的情况
+Timer *connect_timer = new Timer();
+char connectBuffer[BUFFER];
 
+void resend_buffer_data() {
+    if (connect_timer->TimeOut()) {
+        cout << "connect sig erro resend ..." << endl;
+        sendto(sockServer, (char *) connectBuffer, strlen(connectBuffer) + 1, 0, (SOCKADDR *) &addrClient,
+               sizeof(SOCKADDR));
+        connect_timer->Start();
+    }
+}
 
-void send_data(char *data, Timer *t=ack_timer, int wndsize=cwnd) {
+void send_data(char *data, Timer *t = ack_timer, int wndsize = cwnd) {
     /*
      * char *data: 要发送的数据
      * Timer *t 对应的acktimer数组
@@ -49,7 +61,7 @@ void send_data(char *data, Timer *t=ack_timer, int wndsize=cwnd) {
     extract_pkt(data, *tmp);
     // 判断是不是空数据
     if (tmp->destPort != 0) {
-        cout << "send: " << tmp->seqNum << endl;
+//        cout << "send: " << tmp->seqNum << endl;
         sendto(sockServer, (char *) tmp, sizeof(DataPackage) + tmp->len, 0, (SOCKADDR *) &addrClient, sizeof(SOCKADDR));
         // 开启对应的计时器
         t[tmp->seqNum % wndsize].Start();
@@ -148,7 +160,7 @@ void window_flash() {
 void IfTimeout(Timer &t) {
     // 如果超时
     if (t.TimeOut()) {
-        printf("Timer out error.\n");
+//        printf("Timer out error.\n");
         // 重启计时器
         t.Start();
         congest_stage = 0; // 回到慢启动阶段
@@ -225,7 +237,7 @@ void congest_control() {
             switch (congest_stage) {
                 case 0: { // 慢启动阶段
                     if ((int) tmpData->ackNum > lastACKnum) {
-                        cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
+//                        cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
                         last_window_size = cwnd;
                         // 现在的窗口大小改变
                         cwnd = cwnd + tmpData->ackNum - lastACKnum;
@@ -252,7 +264,7 @@ void congest_control() {
                 }
                 case 1: { // 拥塞避免阶段
                     if ((int) tmpData->ackNum > lastACKnum) {
-                        cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
+//                        cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
                         last_window_size = cwnd;
                         // 现在的窗口大小改变
                         cwnd = cwnd + int((tmpData->ackNum - lastACKnum) / cwnd);
@@ -281,7 +293,7 @@ void congest_control() {
                 case 2: { // 快速恢复阶段
                     if ((int) tmpData->ackNum > lastACKnum) {
                         // 如果获得新的ack
-                        cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
+//                        cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
 
                         congest_stage = 2; // 进入拥塞避免阶段
                         last_window_size = cwnd;
@@ -309,7 +321,7 @@ void congest_control() {
                 }
             }
         } else {
-            cout << "something error" << endl;
+//            cout << "something error" << endl;
             IfTimeout(ack_timer[expectACKnum % cwnd]);
         }
         delete tmpData;
@@ -384,6 +396,8 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < cwnd; i++)
         sndpkt[i] = new char[BUFFER];
 
+    connect_timer->timeout = 10;
+
     while (!logout) {
         if (!is_connect)
             cout << "wait connect with client ..." << endl;
@@ -396,10 +410,10 @@ int main(int argc, char *argv[]) {
             i++;
             Sleep(500);
         }
-        if (i > 20) {
-            printf("can't connect\n exit program ...");
-            exit(1);
-        }
+//        if (i > 20) {
+//            printf("can't connect\n exit program ...");
+//            exit(1);
+//        }
         int waitCount = 0;
         //握手建立连接阶段
         //服务器收到客户端发来的TAG=0的数据报，标识请求连接
@@ -415,15 +429,21 @@ int main(int argc, char *argv[]) {
                 switch (stage) {
                     case 0: //发送 S1 阶段
                     {
+//                        resend_buffer_data();
                         cout << "send S1 to client ..." << endl;
                         buffer[0] = S1;
+                        buffer[1] = '\0';
+                        Strcpyn(connectBuffer, buffer, 2);
                         sendto(sockServer, buffer, strlen(buffer) + 1, 0, (SOCKADDR *) &addrClient, sizeof(SOCKADDR));
-                        Sleep(100);
+//                        Sleep(100);
+                        connect_timer->Start();
                         stage = 1;
                         break;
                     }
                     case 1: //等待接收 S2 阶段，没有收到则计数器+1，超时则放弃此次“连接”，等待从第一步开始
                     {
+                        resend_buffer_data();
+
                         cout << "stage 1: wait S2 from client ..." << endl;
                         recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *) &addrClient), &length);
                         if (recvSize < 0) {
@@ -442,12 +462,14 @@ int main(int argc, char *argv[]) {
                     }
                     case 2: //文件选择阶段
                     {
+                        resend_buffer_data();
+
                         cout << "==========file transport===========" << endl;
                         string filePath = "-1";
                         cout << "Please input file path which needs to be send: " << endl;
                         cin >> filePath;
                         if (filePath == "-1") {
-                            filePath = "..\\test\\helloworld.txt";
+                            filePath = ".\\test\\helloworld.txt";
                             cout << "the default file path is " << filePath << endl;
                         }
 
@@ -456,11 +478,17 @@ int main(int argc, char *argv[]) {
                         first_open_file = true;
 
                         buffer[0] = S3;
+                        buffer[1] = '\0';
+                        Strcpyn(connectBuffer, buffer, 2);
+
                         sendto(sockServer, buffer, strlen(buffer) + 1, 0, (SOCKADDR *) &addrClient, sizeof(SOCKADDR));
+                        connect_timer->Start();
                         stage = 10;
                         break;
                     }
                     case 10: {
+                        resend_buffer_data();
+
                         string filename = "-1";
                         cout << "Please input file name: " << endl;
                         cin >> filename;
@@ -472,11 +500,15 @@ int main(int argc, char *argv[]) {
                         for (int i = 0; i < filename.length(); i++)
                             buffer[i] = filename[i];
                         buffer[filename.length()] = '\0';
+                        Strcpyn(connectBuffer, buffer, strlen(buffer) + 1);
                         sendto(sockServer, buffer, strlen(buffer) + 1, 0, (SOCKADDR *) &addrClient, sizeof(SOCKADDR));
+                        connect_timer->Start();
                         stage = 3;
                         break;
                     }
                     case 3: {
+                        resend_buffer_data();
+
                         recvSize = recvfrom(sockServer, buffer, BUFFER, 0, ((SOCKADDR *) &addrClient), &length);
                         if ((unsigned char) buffer[0] == S4) {
                             printf("get S4 from client !!!\n");
@@ -551,6 +583,9 @@ int main(int argc, char *argv[]) {
                             if (first_open_file) {
                                 // 总的计时器打开
                                 totalT->Start();
+                                is->open(sendFile->filePath, ifstream::in | ios::binary);
+                                pos = is->tellg();
+                                is->close();
                                 first_open_file = false;
                             }
                             // 窗口初始化
@@ -561,6 +596,7 @@ int main(int argc, char *argv[]) {
                                 // 如果文件发完了就退出循环
                                 if (lastACKnum == sendFile->packageSum - 1) {
                                     totalT->Show();
+                                    ShowPerformance(*sendFile, *totalT);
                                     stage = 5;
                                     offset = 0;
                                     break;

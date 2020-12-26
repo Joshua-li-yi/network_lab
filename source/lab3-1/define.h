@@ -4,7 +4,7 @@
 using namespace std;
 #define BUFFER 1024    // int类型 //缓冲区大小（以太网中 UDP 的数据帧中包长度应小于 1480 字节）
 #define WINDOWSIZE 10 //滑动窗口大小为 10，当改为1时即为停等协议
-#define TIMEOUT 2     // 超时
+#define TIMEOUT 0.5     // 超时
 #define S1 1 // 不同的状态
 #define S2 2
 #define S3 3
@@ -212,5 +212,10 @@ void Timer::Show()
     cout<<"==================="<<endl;
 
 }
-
+void ShowPerformance(File f, Timer t){
+    cout << "===================" << endl;
+    double rate =  f.fileLen/(t.GetTime()*1000);
+    cout<<"the rate is: "<<rate<<"KB/s, "<<rate/1000<<" M/s"<<endl;
+    cout << "===================" << endl;
+}
 #endif

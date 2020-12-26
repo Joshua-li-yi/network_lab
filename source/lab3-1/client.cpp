@@ -2,7 +2,8 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
-#define CLIENT_PORT 8888	  //接收数据的端口号
+// #define CLIENT_PORT 8888	  //接收数据的端口号
+#define CLIENT_PORT 8889	  //接收数据的端口号
 #define CLIENT_IP "127.0.0.1" //  服务器的 IP 地址
 
 SOCKADDR_IN addrServer; //服务器地址
@@ -115,8 +116,13 @@ int main(int argc, char *argv[])
 				{
 					cout << "server has select file to transport!!!" << endl;
 					cout << "please select path to download this file ..." << endl;
-					filePath = "helloworld.txt";
+					filePath = "./recv/";
 					cin >> filePath;
+					if (filePath == "-1")
+					{
+						filePath = "./recv/";
+						cout << "the default file path is: " << filePath << endl;
+					}
 					stage = 50;
 				}
 				break;
@@ -192,6 +198,7 @@ int main(int argc, char *argv[])
 						sendData.len = 0;
 						//发送数据包
 						sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
+						
 						// 期望的seq++
 						expectedseqnum++;
 
@@ -242,7 +249,7 @@ int main(int argc, char *argv[])
 				if (multiRev)
 					stage = 1;
 				else
-				{// 关闭连接
+				{ // 关闭连接
 					buffer[0] = DISCONNECT;
 					buffer[1] = '\0';
 					sendto(socketClient, buffer, 2, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));

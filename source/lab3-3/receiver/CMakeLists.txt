@@ -10,3 +10,4 @@ add_executable(receiver client.cpp)
 if(MINGW)
     target_link_libraries(receiver ws2_32)
 endif()
+

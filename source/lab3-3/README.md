@@ -120,12 +120,20 @@ bool corrupt(DataPackage *data)
 
 #### 1、一些基本变量
 
+使用congest_stage 来控制所处的阶段         
+
+ 0为慢启动阶段
+
+1为拥塞避免阶段
+
+2为快速恢复阶段
+
 ```c++
 // 用二维数组实现长度变化的窗口大小
 char **sndpkt; // 缓冲区
 int cwnd = 1;                   // 拥塞窗口大小
 int ssthresh = 20;               //拥塞控制阈值大小
-int congest_stage = 0;           // 拥塞控制的阶段， 0为慢启动解读，1为拥塞避免阶段,2为快速恢复阶段
+int congest_stage = 0;           // 拥塞控制的阶段， 0为慢启动阶段，1为拥塞避免阶段,2为快速恢复阶段
 int dupACKcount = 0;           //实现RENO算法的计数
 int last_window_size = cwnd; // 上一次窗口的大小
 ```
@@ -180,7 +188,6 @@ void window_flash() {
         sndpkt = tmp_sndpkt;
         ack_timer = tmp_ack_timer;
     }
-    // 其他情况不用管
 }
 ```
 
@@ -209,6 +216,8 @@ void IfTimeout(Timer &t) {
 ```
 
 #### 5、快速恢复阶段
+
+通过收到的重复ack的次数判断是否进入快速恢复阶段
 
 ```c++
 // 判断是否进入快速恢复阶段
@@ -248,6 +257,10 @@ void window_shift() {
 ```
 
 #### 7、拥塞控制
+
++ 通过congest_stage控制所处的阶段
++ cwnd >= ssthresh时进入拥塞避免阶段
++ 在不同阶段完成对应的处理
 
 ```c++
 
@@ -369,113 +382,7 @@ void congest_control() {
 
 ### （3） 累计确认
 
-接收端
-
-初始化累计确认的参数
-
-```c++
-	Timer *t = new Timer();
-	t->timeout = 0.5;  // 500毫秒累计确认
-	int multipkgs = 3; // 等待几个包传一次
-	int getpkgs = 0; // 现在已经获得的包的个数
-```
-
-```c++
-					else if ((recvData.flag > 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(&recvData)))
-					{
-						
-						// 文件分段接收
-						cout << "pkg " << recvData.seqNum << " not bad!" << endl;
-						// 重新开始计时
-						if (getpkgs == 0)
-							t->Start();
-						// 如果没有超过500ms
-						if (!t->TimeOut())
-						{
-							getpkgs++;
-                            	// 期望值seq++
-							expectedseqnum++;
-							// 如果达到了累计的数据包，发送ack
-                           	 	// 或者小于multipkg，为了处理慢启动阶段开始的时候发生的重传现象
-                              if ((getpkgs == multipkgs) | recvData.offset < multipkgs) {
-							{
-								// 重置getpkgs
-								getpkgs = 0;
-								DataPackage sendData;
-								sendData.ackNum = recvData.seqNum;
-								sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
-								sendData.CheckSum((unsigned short *)sendData.message);
-								sendData.ackflag = 1;
-								sendData.len = 0;
-								// 当前acknum
-								curACKnum = sendData.ackNum;
-								sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
-							}
-							// cout << "begin write to file: " << recvFile->filePath << endl;
-							printf("begin write %d segment ...\n", recvData.offset);
-							if (recvData.offset < recvData.flag) // 直到所有分段发完
-							{
-								// 打开文件在文件最后写入
-								outfile->open(recvFile->filePath, ios::out | ios::binary | ios::app);
-								outfile->write(recvData.message, recvData.len - 1);
-								outfile->close();
-
-								if (recvData.offset == recvData.flag - 1)
-								{
-									cout << "write file success!" << endl;
-									// 发送最后一段的ack
-									DataPackage sendData;
-									sendData.ackNum = recvData.seqNum;
-									sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
-									sendData.CheckSum((unsigned short *)sendData.message);
-									sendData.ackflag = 1;
-									sendData.len = 0;
-									// 当前acknum
-									curACKnum = sendData.ackNum;
-									sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
-									stage = 10;
-									runFlag = false;
-									logout = true;
-								}
-							}
-						}
-						else // 如果超过了500就抛弃掉现在的数据包，重新开始计时
-						{
-							getpkgs = 0;
-							// 发送ACK
-							DataPackage sendData;
-							// 发送上一次的ack
-							sendData.ackNum = curACKnum;
-							sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
-							sendData.CheckSum((unsigned short *)sendData.message);
-							sendData.ackflag = 1;
-							sendData.len = 0;
-							sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
-						}
-						stage = 2;
-					}
-					else if ((recvData.flag > 0) & (!hasseqnum(recvData, expectedseqnum)) & (!corrupt(&recvData)))
-					{
-						// 如果收到的不是对应期望的分组
-						cout << "get " << recvData.ackNum << " not get expectedseqnum " << expectedseqnum << endl;
-						DataPackage sendData;
-						// 发送上一次的ack
-						sendData.ackNum = curACKnum;
-						sendData.make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
-						sendData.CheckSum((unsigned short *)sendData.message);
-						// 记为ack数据包
-						sendData.ackflag = 1;
-						sendData.len = 0;
-						sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
-					}
-				}
-
-				break;
-			}
-```
-
 发送端
-
 + 如果实在慢启动阶段的话，就使cwnd 扩展接收到的acknum - lastacknum
 
 ```c++

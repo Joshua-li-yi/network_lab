@@ -3,8 +3,8 @@
 #include "common.h"
 using namespace std;
 #define BUFFER 1024    // int类型 //缓冲区大小（以太网中 UDP 的数据帧中包长度应小于 1480 字节）
-#define WINDOWSIZE 20 //滑动窗口大小
-#define TIMEOUT 2     // 超时,单位S, 代表着一组中所有的ACK都已经正确收到
+#define WINDOWSIZE 100 //滑动窗口大小
+#define TIMEOUT 0.5     // 超时,单位S, 代表着一组中所有的ACK都已经正确收到
 #define S1 1
 #define S2 2
 #define S3 3
@@ -152,6 +152,7 @@ public:
             streampos pos = readis.tellg(); // 获得文件开始的位置
             readis.seekg(0, ios::end);      //将文件流指针定位到流的末尾
             this->fileLen = readis.tellg(); // 文件的总长度
+            
             readis.seekg(pos);              //将文件流指针重新定位到流的开始
             this->fileLenRemain = this->fileLen % (BUFFER - sizeof(DataPackage) - 1);
             if (this->fileLenRemain)
@@ -213,5 +214,10 @@ void Timer::Show()
     cout<<"==================="<<endl;
 
 }
-
+void ShowPerformance(File f, Timer t){
+    cout << "===================" << endl;
+    double rate =  f.fileLen/(t.GetTime()*1000);
+    cout<<"the rate is: "<<rate<<"KB/s, "<<rate/1000<<" M/s"<<endl;
+    cout << "===================" << endl;
+}
 #endif

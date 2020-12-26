@@ -128,7 +128,7 @@ void extract_pkt(char *message, DataPackage &resultdata) {
 class File {
 public:
     string filePath; // 文件的路径
-    int fileLen;     // 文件大小 bits
+    int fileLen;     // 文件大小 B
     int packageSum;  // 需要分多少次发
     bool read;
     int fileLenRemain;
@@ -223,4 +223,10 @@ void Timer::Show() {
 
 }
 
+void ShowPerformance(File f, Timer t){
+    cout << "===================" << endl;
+    double rate =  f.fileLen/(t.GetTime()*1000);
+    cout<<"the rate is: "<<rate<<"KB/s, "<<rate/1000<<" M/s"<<endl;
+    cout << "===================" << endl;
+}
 #endif

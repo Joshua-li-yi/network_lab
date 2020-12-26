@@ -3,13 +3,14 @@
 #pragma comment(lib, "ws2_32.lib")
 
 #define CLIENT_PORT 8888	  //接收数据的端口号
+// #define CLIENT_PORT 8889	  //接收数据的端口号
 #define CLIENT_IP "127.0.0.1" //  服务器的 IP 地址
 
 SOCKADDR_IN addrServer; //服务器地址
 SOCKADDR_IN addrClient; //客户端地址
 // TODO 为啥？？？
 //int WINDOWSIZE = 1;
-#define WINDOWSIZE 1
+// #define WINDOWSIZE 1
 int expectedseqnum = 0;
 SOCKET socketClient;
 // 判断是否是期望的序列号
@@ -53,7 +54,7 @@ int main(int argc, char *argv[])
     int client_port = -1;
     string client_ip = "-1";
     cout << "please input client ip addr: ";
-    cin >> client_ip;
+    // cin >> client_ip;
     if (client_ip == "-1")
     {
         std ::cout << "\tdefault IP: " << CLIENT_IP << "\n";
@@ -61,7 +62,7 @@ int main(int argc, char *argv[])
     }
     const char *client_ip_const = client_ip.c_str();
     cout << "please input client port: ";
-    cin >> client_port;
+    // cin >> client_port;
     if (client_port == -1)
     {
         cout << "\tdefault port: " << CLIENT_PORT << "\n";
@@ -93,7 +94,7 @@ int main(int argc, char *argv[])
     string filePath = "";//文件路径
     Timer *t = new Timer(); //累计确认计时器
     t->timeout = 0.5;  // 500毫秒累计确认
-    int multipkgs = 3; //等待几个包传一次
+    int multipkgs = 5; //等待几个包传一次
     int getpkgs = 0;   // 获得的包的个数
     while (!logout)
     {
@@ -124,11 +125,11 @@ int main(int argc, char *argv[])
                     {
                         cout << "server has select file to transport!!!" << endl;
                         cout << "please select path to download this file ..." << endl;
-                        filePath = "../recv/";
-                        cin >> filePath;
+                        filePath = "-1";
+                        // cin >> filePath;
                         if(filePath=="-1")
                         {
-                            filePath = "../recv/";
+                            filePath = "./recv/";
                             cout<<"the default file path is: "<<filePath<<endl;
                         }
                         stage = 50;
@@ -159,7 +160,7 @@ int main(int argc, char *argv[])
                         // 如果是所期望的包的话
                         if ((recvData.flag == 0) & hasseqnum(recvData, expectedseqnum) & (!corrupt(&recvData)))
                         { // 文件不分段的接收
-                            cout << "pkg not bad!" << endl;
+                            // cout << "pkg not bad!" << endl;
                             DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage));
                             data->ackNum = recvData.seqNum;
                             data->make_pkt(CLIENT_PORT, CLIENT_PORT, 0, WINDOWSIZE);
@@ -169,7 +170,7 @@ int main(int argc, char *argv[])
                             sendto(socketClient, (char *)data, sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
                             expectedseqnum++;
 
-                            cout << "begin write to file: " << recvFile->filePath << endl;
+                            // cout << "begin write to file: " << recvFile->filePath << endl;
                             // 打开文件开始写入
                             outfile->open(recvFile->filePath, ios::out | ios::binary | ios::app);
 
@@ -185,7 +186,7 @@ int main(int argc, char *argv[])
                         {
 
                             // 文件分段接收
-                            cout << "pkg " << recvData.seqNum << " not bad!" << endl;
+                            // cout << "pkg " << recvData.seqNum << " not bad!" << endl;
                             // 重新开始计时
                             if (getpkgs == 0)
                                 t->Start();
@@ -211,7 +212,7 @@ int main(int argc, char *argv[])
                                     sendto(socketClient, (char *)(&sendData), sizeof(DataPackage) + sendData.len, 0, (SOCKADDR *)&addrServer, sizeof(SOCKADDR));
                                 }
                                 // cout << "begin write to file: " << recvFile->filePath << endl;
-                                printf("begin write %d segment ...\n", recvData.offset);
+                                // printf("begin write %d segment ...\n", recvData.offset);
                                 if (recvData.offset < recvData.flag) // 直到所有分段发完
                                 {
                                     // 打开文件在文件最后写入
@@ -256,7 +257,7 @@ int main(int argc, char *argv[])
                         else if ((recvData.flag > 0) & (!hasseqnum(recvData, expectedseqnum)) & (!corrupt(&recvData)))
                         {
                             // 如果收到的不是对应期望的分组
-                            cout << "get " << recvData.seqNum << " not get expectedseqnum " << expectedseqnum << endl;
+//                            cout << "get " << recvData.seqNum << " not get expectedseqnum " << expectedseqnum << endl;
                             DataPackage sendData;
                             // 发送上一次的ack
                             sendData.ackNum = curACKnum;

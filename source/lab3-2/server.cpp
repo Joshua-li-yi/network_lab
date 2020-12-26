@@ -18,8 +18,8 @@ int length = sizeof(SOCKADDR);
 char buffer[BUFFER];					  //数据发送接收缓冲区
 Timer *ack_timer = new Timer[WINDOWSIZE]; // 标志每一个包的Timer
 
-char sndpkt[WINDOWSIZE][BUFFER]; // 缓冲区
-int nextseqnum = 0;				 // 下一个seq的num
+char **sndpkt;		// 缓冲区
+int nextseqnum = 0; // 下一个seq的num
 // 在接收到ACK之后才变化的值
 int base = 0;		  // 窗口的第一个序号
 int lastACKnum = -1;  // 用于检测重复ACK，如果是重复的ACK就会被忽略
@@ -32,23 +32,98 @@ ifstream *is = new ifstream(); // 读文件
 File *sendFile = new File();   // 文件操作
 int min_size = 0;			   // 初始化中要发送的包的个数
 
+void send_data(char *data, Timer *t = ack_timer, int wndsize = WINDOWSIZE)
+{
+	/*
+     * char *data: 要发送的数据
+     * Timer *t 对应的acktimer数组
+     * wndsize 当前的windsize大熊
+     */
+	DataPackage *tmp = (DataPackage *)malloc(
+		sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
+	// extrack package将char*转为DataPackage
+	extract_pkt(data, *tmp);
+	// 判断是不是空数据
+	if (tmp->destPort != 0)
+	{
+		// cout << "send: " << tmp->seqNum << endl;
+		sendto(sockServer, (char *)tmp, sizeof(DataPackage) + tmp->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
+		// 开启对应的计时器
+		t[tmp->seqNum % wndsize].Start();
+	}
+	delete tmp;
+}
 // 超时重传处理函数 重传现在缓冲区中所有的数据包
 void IfTimeout(Timer &t)
 {
+	// 如果超时
 	if (t.TimeOut())
 	{
-		printf("Timer out error.\n");
+		//        printf("Timer out error.\n");
+		// 重启计时器
 		t.Start();
+		// 重传现在缓冲区中所有的数据包
 		for (int i = 0; i < WINDOWSIZE; ++i)
-		{
-			DataPackage *tmp = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));;
-			extract_pkt(sndpkt[i], *tmp);
-			sendto(sockServer, (char*)tmp, sizeof(DataPackage) + tmp->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-			delete tmp;
-		}
+			send_data(sndpkt[i]);
 	}
 }
+// 从文件中读取数据
+char *read_data_from_file()
+{
 
+	char *out_data = new char[BUFFER];
+	DataPackage *data = (DataPackage *)malloc(
+		sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
+	char *tmp = new char[BUFFER - sizeof(DataPackage)];
+	// 打开文件
+	is->open(sendFile->filePath, ifstream::in | ios::binary);
+	// 定位到上次读取的位置
+	is->seekg(pos);
+	data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
+	data->ackNum = 0;
+	data->ackflag = 0;
+	nextseqnum++;
+	// 标志文件分段发送
+	data->flag = sendFile->packageSum;
+	// 现在是第几段
+	data->offset = offset;
+	offset++;
+	//    cout << "read data: " << data->seqNum << endl;
+	// 还没有读到文件的最后一部分
+	if (offset != sendFile->packageSum - 1)
+	{
+		is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
+		tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
+		Strcpyn(data->message, tmp, BUFFER - sizeof(DataPackage));
+
+		data->len = BUFFER - sizeof(DataPackage);
+		// 计算checksum
+		data->CheckSum((unsigned short *)data->message);
+		// 拷贝在缓冲区中
+		Strcpyn(out_data, (char *)data, BUFFER);
+	}
+	else
+	{ // 如果是文件的最后一部分
+		is->read(tmp, sendFile->fileLenRemain);
+		tmp[sendFile->fileLenRemain] = '\0';
+		Strcpyn(data->message, tmp, sendFile->fileLenRemain + 1);
+		data->len = sendFile->fileLenRemain + 1;
+		// 计算checksum
+		data->CheckSum((unsigned short *)data->message);
+		// 拷贝在缓冲区中
+		Strcpyn(out_data, (char *)data,
+				sizeof(DataPackage) + (sendFile->fileLenRemain + 1) * sizeof(char));
+	}
+
+	// 获取现在的位置
+	pos = is->tellg();
+	// 关闭文件
+	is->close();
+	delete tmp;
+	delete data;
+	// 返回读取出来的数据
+	return out_data;
+}
 // 窗口移动
 void window_shift()
 {
@@ -56,81 +131,16 @@ void window_shift()
 	for (int i = 0; i < WINDOWSIZE - 1; i++)
 		Strcpyn(sndpkt[i], sndpkt[i + 1], BUFFER);
 	// 窗口移动时需要新增加数据
-	if (base + WINDOWSIZE <= sendFile->packageSum)
+	if (offset < sendFile->packageSum)
 	{
-		// 还没有读到文件的最后一部分
-		if (offset != sendFile->packageSum - 1)
-		{
-			DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-
-			char *tmp = new char[BUFFER - sizeof(DataPackage)];
-			// 打开文件
-			is->open(sendFile->filePath, ifstream::in | ios::binary);
-			// 定位到上次读取的位置
-			is->seekg(pos);
-			is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
-			// 获取现在的位置
-			pos = is->tellg();
-			// 关闭文件
-			is->close();
-
-			tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
-
-			Strcpyn(data->message, tmp, BUFFER - sizeof(DataPackage));
-			delete tmp;
-			data->len = BUFFER - sizeof(DataPackage);
-			data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
-			nextseqnum++;
-			// 计算checksum
-			data->CheckSum((unsigned short *)data->message);
-			// 标志文件分段发送
-			data->flag = sendFile->packageSum;
-			// 现在是第几段
-			data->offset = offset;
-			offset++;
-			// 拷贝在缓冲区中
-			Strcpyn(sndpkt[WINDOWSIZE - 1], (char *)data, sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-			// 发送数据
-			if (data->seqNum < base + WINDOWSIZE)
-				sendto(sockServer, (char *)(data), sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-			// 开启计时器
-			ack_timer[data->seqNum % WINDOWSIZE].Start();
-			delete data;
-		}
-		else
-		{ // 如果是文件的最后一部分
-			DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (sendFile->fileLenRemain + 1) * sizeof(char));
-			char *tmp = new char[sendFile->fileLenRemain + 1];
-			is->open(sendFile->filePath, ifstream::in | ios::binary);
-			is->seekg(pos);
-			is->read(tmp, sendFile->fileLenRemain);
-			pos = is->tellg();
-			is->close();
-
-			tmp[sendFile->fileLenRemain] = '\0';
-			Strcpyn(data->message, tmp, sendFile->fileLenRemain + 1);
-			delete tmp;
-			data->len = sendFile->fileLenRemain + 1;
-			data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
-			nextseqnum++;
-			data->CheckSum((unsigned short *)data->message);
-			data->flag = sendFile->packageSum;
-			data->offset = offset;
-			offset++;
-			Strcpyn(sndpkt[WINDOWSIZE - 1], (char *)data, sizeof(DataPackage) + (sendFile->fileLenRemain + 1) * sizeof(char));
-			// 发送数据
-			if (data->seqNum < base + WINDOWSIZE)
-				sendto(sockServer, (char *)(data), sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-			// 开启计时器
-			ack_timer[data->seqNum % WINDOWSIZE].Start();
-			delete data;
-		}
+		sndpkt[WINDOWSIZE - 1] = read_data_from_file();
 	}
 	else
 	{
 		// 不需要增加新数据时
 		ZeroMemory(sndpkt[WINDOWSIZE - 1], BUFFER);
 	}
+	send_data(sndpkt[WINDOWSIZE - 1]);
 }
 
 // 窗口初始化
@@ -139,97 +149,18 @@ void window_init()
 	// 如果文件比较小，不能填满所有窗口
 	if (sendFile->packageSum <= WINDOWSIZE)
 	{
-		// 打开文件
-		is->open(sendFile->filePath, ifstream::in | ios::binary);
 		// 将数据包加入到缓存当中
 		for (int i = 0; i < sendFile->packageSum - 1; i++)
-		{
-			DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-			char *tmp = new char[BUFFER - sizeof(DataPackage)];
-			is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
-			tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
-			Strcpyn(data->message, tmp, BUFFER - sizeof(DataPackage));
-			delete tmp;
-			data->len = BUFFER - sizeof(DataPackage);
-			data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
-			nextseqnum++;
-			// 计算checksum
-			data->CheckSum((unsigned short *)data->message);
-			// 文件需要分段发送
-			data->flag = sendFile->packageSum;
-			// 该数据包在第几个分段
-			data->offset = offset;
-			offset++;
-			// 拷贝在缓冲区中
-			Strcpyn(sndpkt[i], (char *)data, sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-
-			delete data;
-		}
-		// 最后一部分
-		DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (sendFile->fileLenRemain + 1) * sizeof(char));
-		char *tmp = new char[sendFile->fileLenRemain + 1];
-		is->read(tmp, sendFile->fileLenRemain);
-		is->close();
-		tmp[sendFile->fileLenRemain] = '\0';
-		Strcpyn(data->message, tmp, sendFile->fileLenRemain + 1);
-		delete tmp;
-		data->len = sendFile->fileLenRemain + 1;
-		data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
-		nextseqnum++;
-
-		data->CheckSum((unsigned short *)data->message);
-		data->flag = sendFile->packageSum;
-		data->offset = offset;
-		offset++;
-		Strcpyn(sndpkt[sendFile->packageSum - 1], (char *)data, sizeof(DataPackage) + (sendFile->fileLenRemain + 1) * sizeof(char));
-		delete data;
-		// 其他地方都置为0
-		for (int i = sendFile->packageSum; i < WINDOWSIZE; i++)
-			ZeroMemory(sndpkt[i], BUFFER);
+			sndpkt[i] = read_data_from_file();
 	}
 	else
-	{ // 如果文件太大，一个窗口放不下
-		is->open(sendFile->filePath, ifstream::in | ios::binary);
+	{
 		for (int i = 0; i < WINDOWSIZE; i++)
-		{
-			DataPackage *data = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-			char *tmp = new char[BUFFER - sizeof(DataPackage)];
-			is->read(tmp, BUFFER - sizeof(DataPackage) - 1);
-			tmp[BUFFER - sizeof(DataPackage) - 1] = '\0';
-			Strcpyn(data->message, tmp, BUFFER - sizeof(DataPackage));
-			delete tmp;
-
-			data->len = BUFFER - sizeof(DataPackage);
-			data->make_pkt(SERVER_PORT, SERVER_PORT, nextseqnum, WINDOWSIZE);
-			nextseqnum++;
-			// 计算checksum
-			data->CheckSum((unsigned short *)data->message);
-			// 文件需要分段发送
-			data->flag = sendFile->packageSum;
-			data->offset = offset;
-			offset++;
-			// 拷贝在缓冲区中
-			Strcpyn(sndpkt[i], (char *)data, sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-			delete data;
-		}
-		// 记录现在的文件位置
-		pos = is->tellg();
-		// 关闭文件
-		is->close();
+			sndpkt[i] = read_data_from_file();
 	}
 	// 开始发送现在的数据包
-	int k = 0;
-	while (k <= min_size)
-	{
-		DataPackage *tmp = (DataPackage *)malloc(sizeof(DataPackage) + (BUFFER - sizeof(DataPackage)) * sizeof(char));
-		extract_pkt(sndpkt[k], *tmp);
-		// 发送窗口中的数据包
-		if (tmp->seqNum < base + WINDOWSIZE)
-			sendto(sockServer, (char *)(tmp), sizeof(DataPackage) + tmp->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
-		// 打开计时器
-		ack_timer[tmp->seqNum % WINDOWSIZE].Start();
-		k++;
-	}
+	for (int i = 0; i <= min_size; i++)
+		send_data(sndpkt[i]);
 }
 
 int main(int argc, char *argv[])
@@ -261,10 +192,10 @@ int main(int argc, char *argv[])
 	{
 		printf("The Winsock 2.2 dll was found okay\n");
 	}
-	int server_port = 11332;
-	string server_ip = "127.0.0.1";
+	int server_port = -1;
+	string server_ip = "-1";
 	cout << "please input ip addr: ";
-	cin >> server_ip;
+	// cin >> server_ip;
 	if (server_ip == "-1")
 	{
 		cout << "\tdefault IP:  " << SERVER_IP << "\n";
@@ -272,7 +203,7 @@ int main(int argc, char *argv[])
 	}
 
 	cout << "please input sever port: ";
-	cin >> server_port;
+	// cin >> server_port;
 	if (server_port == -1)
 	{
 		cout << "\tdefault port: " << SERVER_PORT << "\n";
@@ -298,7 +229,9 @@ int main(int argc, char *argv[])
 	bool is_connect = false; // 判断是否连接
 	Timer *t = new Timer();	 // 计时器
 	Timer *totalT = new Timer();
-
+	sndpkt = new char *[WINDOWSIZE];
+	for (int i = 0; i < WINDOWSIZE; i++)
+		sndpkt[i] = new char[BUFFER];
 	bool logout = false;		 // 是否登出
 	bool runFlag = true;		 //是否运行
 	bool first_open_file = true; // 是否是第一次打开该文件
@@ -372,7 +305,7 @@ int main(int argc, char *argv[])
 				case 2: //文件选择阶段
 				{
 					cout << "==========file transport===========" << endl;
-					string filePath;
+					string filePath="-1";
 					cout << "Please input file path which needs to be send: " << endl;
 					cin >> filePath;
 					if (filePath == "-1")
@@ -392,7 +325,7 @@ int main(int argc, char *argv[])
 				}
 				case 10:
 				{
-					string filename;
+					string filename="-1";
 					cout << "Please input file name: " << endl;
 					cin >> filename;
 					if (filename == "-1")
@@ -447,7 +380,7 @@ int main(int argc, char *argv[])
 						data->len = sendFile->fileLen + 1;
 						data->flag = 0;
 						data->offset = 0;
-						cout << "msg: " << data->message << endl;
+						// cout << "msg: " << data->message << endl;
 						Strcpyn(sndpkt[0], (char *)data, sizeof(DataPackage) + data->len);
 						// rdt_send(data, t);
 						sendto(sockServer, (char *)data, sizeof(DataPackage) + data->len, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
@@ -495,6 +428,9 @@ int main(int argc, char *argv[])
 							// 总的计时器打开
 							totalT->Start();
 							first_open_file = false;
+							is->open(sendFile->filePath, ifstream::in | ios::binary);
+							pos = is->tellg();
+							is->close();
 							// 窗口初始化参数，mini_size赋值
 							if (sendFile->packageSum - 1 <= WINDOWSIZE - 1)
 								min_size = sendFile->packageSum - 1;
@@ -513,6 +449,7 @@ int main(int argc, char *argv[])
 							if (lastACKnum == sendFile->packageSum - 1)
 							{
 								totalT->Show();
+								ShowPerformance(*sendFile, *totalT);
 								stage = 5;
 								offset = 0;
 								break;
@@ -531,7 +468,7 @@ int main(int argc, char *argv[])
 								// 接收到ACK，ACK不是重复的ACK，且包没有损坏, 且收到时没有超时
 								if (tmpData->ackflag & (tmpData->ackNum != lastACKnum) & (!corrupt(tmpData)))
 								{
-									cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
+									// cout << "ack success!!! ACK: " << tmpData->ackNum << endl;
 									// 累计确认
 									for (int i = base; i <= tmpData->ackNum; i++)
 										// 窗口移动
@@ -543,7 +480,7 @@ int main(int argc, char *argv[])
 								}
 								else
 								{
-									cout << "something error" << endl;
+									// cout << "something error" << endl;
 									IfTimeout(ack_timer[expectACKnum % WINDOWSIZE]);
 								}
 								delete tmpData;

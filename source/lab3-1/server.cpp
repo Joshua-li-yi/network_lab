@@ -29,7 +29,7 @@ void IfTimeout(Timer *t)
 		printf("Timer out error.\n");
 		t->Start();
 		// for (int i = 0; i < nextseqnum - base; ++i)
-		sendto(sockServer, sndpkt, strlen(sndpkt), 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
+		sendto(sockServer, sndpkt, BUFFER, 0, (SOCKADDR *)&addrClient, sizeof(SOCKADDR));
 	}
 }
 // 发送DataPackage
@@ -315,6 +315,7 @@ int main(int argc, char *argv[])
 						if (offset == sendFile->packageSum)
 						{
 							totalT->Show();
+							ShowPerformance(*sendFile, *totalT);
 							stage = 5;
 							offset = 0;
 							break;
@@ -375,7 +376,7 @@ int main(int argc, char *argv[])
 						// 发送数据包， nextseqnum++
 						rdt_send(data, t);
 						delete data;
-						// cout << "send success!!!" << endl;
+						cout << "send success!!!" << endl;
 						// 等待接收数据包
 						while (true)
 						{
